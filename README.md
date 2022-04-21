@@ -14,7 +14,7 @@ Docker, Kubernetes.
 ## TODOs
 - [ ] Code Documentation.
 
-## Future Works / Papers
+## Future Works / Paper Opportunity
 - [ ] Dynamic resource provisioning, based on workload.
 - [ ] Dynamic kafka partitioning.
 
