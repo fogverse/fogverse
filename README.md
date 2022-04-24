@@ -13,6 +13,10 @@ Docker, Kubernetes.
 
 ## TODOs
 - [ ] Code Documentation.
+- [ ] Testing.
+- [ ] Code Styling and Linter.
+- [ ] Logging.
+- [ ] PyPI.
 
 ## Future Works / Paper Opportunity
 - [ ] Dynamic resource provisioning, based on workload.
