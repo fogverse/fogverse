@@ -1,10 +1,11 @@
 import cv2
+import traceback
 
 from confluent_kafka import Consumer as _Consumer, Producer as _Producer
 
 class Runnable:
-    def on_error(self, err):
-        pass
+    def on_error(self, _):
+        traceback.print_exc()
 
     def process(self, data):
         return data
