@@ -16,7 +16,7 @@ class KafkaConsumer(AbstractConsumer):
     def __init__(self):
         self.consumer_conf = getattr(self, 'consumer_conf', {})
         self.consumer_conf = {
-            'bootstrap.servers': os.getenv('BOOTSTRAP_SERVERS'),
+            'bootstrap.servers': os.getenv('CONSUMER_SERVERS'),
             'auto.offset.reset': 'smallest',
             'group.id': 'group',
             **self.consumer_conf
@@ -68,7 +68,7 @@ class KafkaProducer(AbstractProducer):
     def __init__(self):
         self.producer_conf = getattr(self, 'producer_conf', {})
         self.producer_conf = {
-            'bootstrap.servers': os.getenv('BOOTSTRAP_SERVERS'),
+            'bootstrap.servers': os.getenv('PRODUCER_SERVERS'),
             'client.id': socket.gethostname(),
             **self.producer_conf
         }
