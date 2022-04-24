@@ -7,7 +7,6 @@ from confluent_kafka import (
     Producer as _Producer,
     Consumer as _Consumer,
     KafkaError,
-    Message
 )
 
 from .base import AbstractConsumer, AbstractProducer
@@ -17,8 +16,8 @@ class KafkaConsumer(AbstractConsumer):
         self.consumer_conf = getattr(self, 'consumer_conf', {})
         self.consumer_conf = {
             'bootstrap.servers': os.getenv('CONSUMER_SERVERS'),
-            'auto.offset.reset': 'smallest',
-            'group.id': 'group',
+            'auto.offset.reset': os.getenv('OFFSET_RESET','smallest'),
+            'group.id': os.getenv('GROUP_ID','group'),
             **self.consumer_conf
         }
         self.consumer = _Consumer(self.consumer_conf)
@@ -69,7 +68,7 @@ class KafkaProducer(AbstractProducer):
         self.producer_conf = getattr(self, 'producer_conf', {})
         self.producer_conf = {
             'bootstrap.servers': os.getenv('PRODUCER_SERVERS'),
-            'client.id': socket.gethostname(),
+            'client.id': os.getenv('CLIENT_ID',socket.gethostname()),
             **self.producer_conf
         }
         self.producer = _Producer(self.producer_conf)
