@@ -1,7 +1,9 @@
-import cv2
 import traceback
 
-from confluent_kafka import Consumer as _Consumer, Producer as _Producer
+from confluent_kafka import Message
+
+def convert_list_to_dict(lst):
+    return {key: value for key, value in lst}
 
 class Runnable:
     def on_error(self, _):
@@ -10,17 +12,13 @@ class Runnable:
     def process(self, data):
         return data
 
-    def close(self):
-        consumer = getattr(self, 'consumer', None)
-        if isinstance(consumer, _Consumer):
-            consumer.close()
-        elif isinstance(consumer, cv2.VideoCapture):
-            consumer.release()
-
-        producer = getattr(self, 'producer', None)
-        if isinstance(producer, _Producer):
-            producer.flush()
-        print('all closed')
+    def header_to_dict(self, message):
+        # set headers from list of tuples to dict
+        if isinstance(message, Message):
+            headers = message.headers()
+            if not isinstance(headers, dict):
+                headers = {key: value for key, value in headers}
+                message.set_headers(headers)
 
     def run(self):
         try:
@@ -30,11 +28,14 @@ class Runnable:
 
                 # kafka and opencv consumer compatibility
                 getvalue = getattr(self.message, 'value', None)
-                if callable(getvalue):
+                if getvalue is None:
+                    value = self.message
+                elif callable(getvalue):
                     value = self.message.value()
                 else:
-                    value = self.message
+                    value = self.message.value
 
+                self.header_to_dict(self.message)
                 data = self.decode(value)
                 result = self.process(data)
                 result_bytes = self.encode(result)
@@ -42,4 +43,10 @@ class Runnable:
         except Exception as e:
             self.on_error(e)
         finally:
-            self.close()
+            close_producer = getattr(self, 'close_producer', None)
+            if callable(close_producer):
+                self.close_producer()
+
+            close_consumer = getattr(self, 'close_consumer', None)
+            if callable(close_consumer):
+                self.close_consumer()

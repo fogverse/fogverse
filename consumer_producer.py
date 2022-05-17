@@ -1,4 +1,5 @@
 import os
+import threading
 import cv2
 import socket
 import sys
@@ -29,6 +30,9 @@ class KafkaConsumer(AbstractConsumer):
         self.consumer.subscribe(self.consumer_topic, on_assign=self.on_assign)
         print(self.consumer_conf)
         print(f'subscribed {self.consumer_topic}')
+
+    def close_consumer(self):
+        self.consumer.close()
 
     def on_assign(self, _consumer, partitions):
         self.partitions = partitions
@@ -72,6 +76,19 @@ class KafkaProducer(AbstractProducer):
             **self.producer_conf
         }
         self.producer = _Producer(self.producer_conf)
+        self._cancelled = False
+        self._timeout_poll = 50 / 1E3
+        self._thread_poll = threading.Thread(target=self._loop_poll)
+        self._thread_poll.start()
+
+    def _loop_poll(self):
+        while not self._cancelled:
+            self.producer.poll(self._timeout_poll)
+
+    def close_producer(self):
+        self._cancelled = True
+        self._thread_poll.join()
+        self.producer.flush()
 
     def send(self, data, topic=None, key=None, headers=None):
         key_fun = getattr(self.message, 'key', None)
@@ -82,12 +99,14 @@ class KafkaProducer(AbstractProducer):
             headers = self.message.headers()
         self.producer.produce(topic or self.producer_topic, key=key,
                         value=data, headers=headers, callback=self.acked)
-        self.producer.flush()
 
 class OpenCVConsumer(AbstractConsumer):
     def __init__(self):
         self.device = getattr(self, 'device', 0)
         self.consumer = cv2.VideoCapture(self.device)
+
+    def close_consumer(self):
+        self.consumer.release()
 
     def receive(self):
         success, frame = self.consumer.read()
