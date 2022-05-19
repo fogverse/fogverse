@@ -1,22 +1,23 @@
-from queue import Empty, Queue
+import asyncio
 
-from .consumer_producer import KafkaConsumer, KafkaProducer, OpenCVConsumer
+from .consumer_producer import (
+    AIOKafkaConsumer, AIOKafkaProducer, OpenCVConsumer
+)
 from .base import AbstractConsumer, AbstractProducer
 from .general import Runnable
 
-class Producer(AbstractConsumer, KafkaProducer, Runnable):
+class Producer(AbstractConsumer, AIOKafkaProducer, Runnable):
     pass
 
-class Consumer(KafkaConsumer, AbstractProducer, Runnable):
+class Consumer(AIOKafkaConsumer, AbstractProducer, Runnable):
     pass
 
-class ConsumerStorage(Consumer):
+class ConsumerStorage(AbstractConsumer, AbstractProducer, Runnable):
     def __init__(self, keep_messages=False):
         self.keep_messages = keep_messages
-        self.q = Queue()
-        super().__init__()
+        self.q = asyncio.Queue()
 
-    def send(self, data):
+    async def send(self, data):
         obj = {
             'message': self.message,
             'data': data,
@@ -25,15 +26,13 @@ class ConsumerStorage(Consumer):
             # remove the last message before putting the new one
             if not self.q.empty():
                 self.get_nowait()
-        self.q.put(obj)
+        await self.q.put(obj)
 
-    def get(self, *args, **kwargs):
-        kwargs.setdefault('timeout', 1)
-        try:
-            data = self.q.get(*args, **kwargs)
-        except Empty:
-            return None
-        return data
+    async def get(self):
+        return await self.q.get()
 
     def get_nowait(self):
-        return self.get(block=False)
+        try:
+            return self.q.get_nowait()
+        except asyncio.QueueEmpty:
+            return None

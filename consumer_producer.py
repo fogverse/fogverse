@@ -1,114 +1,80 @@
+import asyncio
 import os
-import threading
-import cv2
 import socket
-import sys
+import cv2
 
-from confluent_kafka import (
-    Producer as _Producer,
-    Consumer as _Consumer,
-    KafkaError,
+from aiokafka import (
+    AIOKafkaConsumer as _AIOKafkaConsumer,
+    AIOKafkaProducer as _AIOKafkaProducer
 )
 
 from .base import AbstractConsumer, AbstractProducer
 
-class KafkaConsumer(AbstractConsumer):
+class AIOKafkaConsumer(AbstractConsumer):
     def __init__(self):
-        self.consumer_conf = getattr(self, 'consumer_conf', {})
-        self.consumer_conf = {
-            'bootstrap.servers': os.getenv('CONSUMER_SERVERS'),
-            'auto.offset.reset': os.getenv('OFFSET_RESET','smallest'),
-            'group.id': os.getenv('GROUP_ID','group'),
-            **self.consumer_conf
-        }
-        self.consumer = _Consumer(self.consumer_conf)
+        self._consumer_topic = getattr(self, 'consumer_topic', None) or\
+                                os.getenv('CONSUMER_TOPIC').split(',')
+        print(self._consumer_topic)
+        self._consumer_conf = getattr(self, 'consumer_conf', {})
+        self._consumer_conf = {
+            'bootstrap_servers': os.getenv('CONSUMER_SERVERS'),
+            'group_id': os.getenv('GROUP_ID','group'),
+            **self._consumer_conf}
+        print(self._consumer_conf)
+        self.consumer = _AIOKafkaConsumer(*self._consumer_topic,
+                                          **self._consumer_conf)
 
-        if not hasattr(self, 'consumer_topic'):
-            self.consumer_topic = os.getenv('CONSUMER_TOPIC')\
-                                    .replace(' ', '')\
-                                    .split(',')
-        self.consumer.subscribe(self.consumer_topic, on_assign=self.on_assign)
-        print(self.consumer_conf)
-        print(f'subscribed {self.consumer_topic}')
+    async def start_consumer(self):
+        await self.consumer.start()
+        if getattr(self, 'read_last', True):
+            await self.consumer.seek_to_end()
 
-    def close_consumer(self):
-        self.consumer.close()
+    async def receive(self):
+        return await self.consumer.getone()
 
-    def on_assign(self, _consumer, partitions):
-        self.partitions = partitions
-        print('Reassigned')
-        print(partitions)
+    async def close_consumer(self):
+        await self.consumer.stop()
 
-        for partition in partitions:
-            # get offset tuple from the first partition
-            offset = _consumer.get_watermark_offsets(partition)
-            print(offset)
-            # position [1] being the last index
-            n = 1
-            if (offset[1] - offset[0]) >= n:
-                partition.offset = offset[1] - n
-        self.consumer.assign(partitions)
-
-    def receive_error(self, data):
-        if data.error().code() == KafkaError._PARTITION_EOF:
-            # End of partition event
-            sys.stderr.write('%% %s [%d] reached end at offset %d\n' %
-                                (data.topic(), data.partition(),
-                                data.offset()))
-        elif data.error():
-            sys.stderr.write('%% %s [%d] %s\n' %
-                                (data.topic(), data.partition(),
-                                data.error()))
-
-    def receive(self):
-        msg = self.consumer.poll(timeout=1.0)
-        if msg is None: return None
-        if msg.error():
-            return self.receive_error(msg)
-        return msg
-
-class KafkaProducer(AbstractProducer):
+class AIOKafkaProducer(AbstractProducer):
     def __init__(self):
-        self.producer_conf = getattr(self, 'producer_conf', {})
-        self.producer_conf = {
-            'bootstrap.servers': os.getenv('PRODUCER_SERVERS'),
-            'client.id': os.getenv('CLIENT_ID',socket.gethostname()),
-            **self.producer_conf
-        }
-        self.producer = _Producer(self.producer_conf)
+        self._producer_conf = getattr(self, 'producer_conf', {})
+        self._producer_conf = {
+            'bootstrap_servers': os.getenv('PRODUCER_SERVERS'),
+            'client_id': os.getenv('CLIENT_ID',socket.gethostname()),
+            **self._producer_conf}
+        print(self._producer_conf)
+        self.producer = _AIOKafkaProducer(**self._producer_conf)
         self._cancelled = False
-        self._timeout_poll = 50 / 1E3
-        self._thread_poll = threading.Thread(target=self._loop_poll)
-        self._thread_poll.start()
 
-    def _loop_poll(self):
-        while not self._cancelled:
-            self.producer.poll(self._timeout_poll)
+    async def send(self, data, topic=None, key=None, headers=None):
+        key = key or getattr(self.message, 'key', None)
+        headers = headers or getattr(self.message, 'headers', None)
+        if type(headers) is tuple:
+            headers = list(headers)
+        await self.producer.send(topic or self.producer_topic, key=key,
+                        value=data, headers=headers)
 
-    def close_producer(self):
-        self._cancelled = True
-        self._thread_poll.join()
-        self.producer.flush()
+    async def start_producer(self):
+        await self.producer.start()
 
-    def send(self, data, topic=None, key=None, headers=None):
-        key_fun = getattr(self.message, 'key', None)
-        if key is None and callable(key_fun):
-            key = self.message.key()
-        headers_fun = getattr(self.message, 'headers', None)
-        if headers is None and callable(headers_fun):
-            headers = self.message.headers()
-        self.producer.produce(topic or self.producer_topic, key=key,
-                        value=data, headers=headers, callback=self.acked)
+    async def close_producer(self):
+        await self.producer.stop()
 
 class OpenCVConsumer(AbstractConsumer):
-    def __init__(self):
-        self.device = getattr(self, 'device', 0)
-        self.consumer = cv2.VideoCapture(self.device)
+    def __init__(self, loop=None, executor=None):
+        self._device = getattr(self, 'device', 0)
+        self.consumer = getattr(self, 'consumer', None) or \
+                            cv2.VideoCapture(self._device)
+        self._loop = loop or asyncio.get_event_loop()
+        self._executor = executor
 
     def close_consumer(self):
         self.consumer.release()
 
-    def receive(self):
+    def _receive(self):
         success, frame = self.consumer.read()
         if not success: return self.receive_error(frame)
         return frame
+
+    async def receive(self):
+        return await self._loop.run_in_executor(self._executor, self._receive)
