@@ -7,6 +7,11 @@ class AbstractConsumer:
     def decode(self, data):
         if not getattr(self, 'auto_decode', True):
             return data
+        if getattr(self, 'consumer', None) is not None and \
+            'ConsumerStorage' in \
+                map(lambda x: x.__name__, type(self.consumer).mro()):
+            self.message = data['message']
+            data = data['data']
         try:
             return bytes_to_numpy(data)
         except (OSError, ValueError, UnpicklingError):
@@ -17,7 +22,10 @@ class AbstractConsumer:
             pass
         return data
 
-    def receive(self):
+    async def start_consumer(self):
+        pass
+
+    async def receive(self):
         raise NotImplementedError
 
     def receive_error(self, *args, **kwargs):
@@ -37,8 +45,8 @@ class AbstractProducer:
             return numpy_to_bytes(data)
         return bytes(data)
 
-    def acked(self, *args, **kwargs):
+    async def start_producer(self):
         pass
 
-    def send(self, data):
+    async def send(self, data):
         raise NotImplementedError
