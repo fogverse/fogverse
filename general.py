@@ -1,9 +1,16 @@
 import traceback
 
-from confluent_kafka import Message
+def _get_func(obj, func_name):
+    func = getattr(obj, func_name, None)
+    return func if callable(func) else None
 
-def convert_list_to_dict(lst):
-    return {key: value for key, value in lst}
+def _call_func(obj, func_name):
+    func = _get_func(obj, func_name)
+    return func() if func is not None else None
+
+async def _call_func_async(obj, func_name):
+    coro = _call_func(obj, func_name)
+    return await coro if coro is not None else None
 
 class Runnable:
     def on_error(self, _):
@@ -12,18 +19,17 @@ class Runnable:
     def process(self, data):
         return data
 
-    def header_to_dict(self, message):
-        # set headers from list of tuples to dict
-        if isinstance(message, Message):
-            headers = message.headers()
-            if not isinstance(headers, dict):
-                headers = {key: value for key, value in headers}
-                message.set_headers(headers)
+    async def start(self):
+        if getattr(self, '_started', False) == True: return
+        await _call_func_async(self, 'start_consumer')
+        await _call_func_async(self, 'start_producer')
+        self._started = True
 
-    def run(self):
+    async def run(self):
+        await self.start()
         try:
             while True:
-                self.message = self.receive()
+                self.message = await self.receive()
                 if self.message is None: continue
 
                 # kafka and opencv consumer compatibility
@@ -35,18 +41,12 @@ class Runnable:
                 else:
                     value = self.message.value
 
-                self.header_to_dict(self.message)
                 data = self.decode(value)
                 result = self.process(data)
                 result_bytes = self.encode(result)
-                self.send(result_bytes)
+                await self.send(result_bytes)
         except Exception as e:
             self.on_error(e)
         finally:
-            close_producer = getattr(self, 'close_producer', None)
-            if callable(close_producer):
-                self.close_producer()
-
-            close_consumer = getattr(self, 'close_consumer', None)
-            if callable(close_consumer):
-                self.close_consumer()
+            await _call_func_async(self, 'close_producer')
+            await _call_func_async(self, 'close_consumer')
