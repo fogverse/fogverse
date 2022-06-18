@@ -1,3 +1,4 @@
+from datetime import datetime
 import sys
 
 import numpy as np
@@ -16,3 +17,44 @@ def numpy_to_bytes(arr):
 def size_kb(s, decimals=2):
     _size = sys.getsizeof(s)
     return round(_size/1e3, decimals)
+
+DATETIME_FORMAT = '%Y-%m-%d %H:%M:%S.%f'
+
+def get_timestamp(utc=True):
+    if utc:
+        _date = datetime.utcnow()
+    else:
+        _date = datetime.now()
+    return _date
+
+def get_timestamp_str(date=None, utc=True, format=DATETIME_FORMAT):
+    date = date or get_timestamp(utc=utc)
+    return datetime.strftime(date, format)
+
+def timestamp_to_datetime(timestamp, format=DATETIME_FORMAT):
+    if isinstance(timestamp, bytes):
+        timestamp = timestamp.decode()
+    return datetime.strptime(timestamp, format)
+
+def calc_datetime(start, end=None, format=DATETIME_FORMAT, decimals=2,
+                  utc=True):
+    if end is None:
+        end = get_timestamp(utc=utc)
+    elif isinstance(end, str):
+        end = datetime.strptime(end, format)
+    if isinstance(start, str):
+        start = datetime.strptime(start, format)
+    diff = (end - start).total_seconds()*1e3
+    return round(diff, decimals)
+
+def get_header(headers, key, default=None, decoder=None):
+    if headers is None or key is None: return default
+    for header in headers:
+        if header[0] == key:
+            val = header[1]
+            if callable(decoder):
+                return decoder(val)
+            if isinstance(val, bytes):
+                return val.decode()
+            return val
+    return default

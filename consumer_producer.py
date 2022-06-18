@@ -1,6 +1,5 @@
 import asyncio
 import inspect
-import logging
 import os
 import socket
 
@@ -8,7 +7,6 @@ from aiokafka import (
     AIOKafkaConsumer as _AIOKafkaConsumer,
     AIOKafkaProducer as _AIOKafkaProducer
 )
-
 from .logging import CsvLogging
 
 from .base import AbstractConsumer, AbstractProducer
@@ -45,6 +43,8 @@ class AIOKafkaConsumer(AbstractConsumer):
 class AIOKafkaProducer(AbstractProducer):
     def __init__(self, loop=None):
         self._loop = loop or asyncio.get_event_loop()
+        self._producer_topic = os.getenv('PRODUCER_TOPIC') or \
+                                getattr(self, 'producer_topic', None)
         self._producer_conf = getattr(self, 'producer_conf', {})
         self._producer_conf = {
             'loop': self._loop,
@@ -65,15 +65,15 @@ class AIOKafkaProducer(AbstractProducer):
                    callback=None):
         key = key or getattr(self.message, 'key', None)
         self._headers = headers or getattr(self.message, 'headers', None)
-        self._topic = topic or self.producer_topic
-        if type(self._headers) is tuple:
+        self._topic = topic or self._producer_topic
+        if isinstance(self._headers, tuple):
             self._headers = list(self._headers)
         future = await self.producer.send(self._topic,
                                           key=key,
                                           value=data,
                                           headers=self._headers)
         callback = callback or getattr(self, 'callback', None)
-        if not callable(callback): return
+        if not callable(callback): return future
         async def _call_callback_ack(args:list, kwargs:dict):
             record_metadata = await future
             res = callback(record_metadata, *args, **kwargs)
