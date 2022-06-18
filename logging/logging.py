@@ -1,19 +1,17 @@
-from datetime import datetime
 import inspect
 import logging
-from pathlib import Path
 import time
-from numpy import record
 import pandas as pd
 
 from .formatter import CsvFormatter
 from .handler import CsvRotatingFileHandler
 from .base import AbstractLogging
 
-from fogverse.util import size_kb
+from fogverse.util import calc_datetime, get_header, get_timestamp, size_kb
 
 from aiokafka import ConsumerRecord
 from os import makedirs, path
+from pathlib import Path
 
 DEFAULT_FMT = '%(levelname)s | %(name)s | %(message)s'
 
@@ -40,23 +38,6 @@ def _calc_delay(start, end=None, decimals=2):
     end = end or time.time()
     delay = (end - start) * 1E3
     return round(delay, decimals)
-
-def _calc_datetime(start, end=None, format='%Y-%m-%d %H:%M:%S.%f', decimals=2):
-    if end is None:
-        end = datetime.utcnow()
-    elif isinstance(end, str):
-        end = datetime.strptime(end, format)
-    if isinstance(start, str):
-        start = datetime.strptime(start, format)
-    diff = (end - start).total_seconds()*1e3
-    return round(diff, decimals)
-
-def _find_header(headers, key, default=None):
-    if headers is None or key is None: return default
-    for header in headers:
-        if header[0] == key:
-            return header[1].decode()
-    return default
 
 class BaseLogging(AbstractLogging):
     def __init__(self,
@@ -158,21 +139,21 @@ class CsvLogging(BaseLogging):
 
     def _before_receive(self):
         self._log_data.drop(self._log_data.index, inplace=True)
-        self._start = datetime.utcnow()
+        self._start = get_timestamp()
 
     def _after_receive(self, _):
-        delay_consume = _calc_datetime(self._start)
+        delay_consume = calc_datetime(self._start)
         self._log_data['consume time'] = [delay_consume]
 
     def _after_decode(self, _):
         if isinstance(self.message, ConsumerRecord):
-            now = datetime.utcnow()
-            frame_creation_time = _find_header(self.message.headers,
+            now = get_timestamp()
+            frame_creation_time = get_header(self.message.headers,
                                                'timestamp')
             if frame_creation_time == None:
                 frame_delay = -1
             else:
-                frame_delay = _calc_datetime(frame_creation_time, end=now)
+                frame_delay = calc_datetime(frame_creation_time, end=now)
             creation_delay = _calc_delay(self.message.timestamp/1e3)
             offset_received = self.message.offset
             topic_from = self.message.topic
@@ -181,6 +162,12 @@ class CsvLogging(BaseLogging):
             creation_delay = self._log_data['consume time'][0]
             offset_received = -1
             topic_from = None
+
+        extras = getattr(self, '_message_extra', None)
+        if extras:
+            consume_time = extras.get('consume time')
+            if consume_time:
+                self._log_data['consume time'] = [consume_time]
         self._log_data['frame delay'] = [frame_delay]
         self._log_data['msg creation delay'] = [creation_delay]
         self._log_data['offset received'] = [offset_received]
@@ -189,16 +176,16 @@ class CsvLogging(BaseLogging):
     def _before_process(self, value):
         size_received = size_kb(value)
         self._log_data['size data received'] = [size_received]
-        self._before_process_time = datetime.utcnow()
+        self._before_process_time = get_timestamp()
 
     def _after_process(self, _):
-        delay_process = _calc_datetime(self._before_process_time)
+        delay_process = calc_datetime(self._before_process_time)
         self._log_data['process time'] = [delay_process]
 
     def _before_send(self, data):
         size_sent = size_kb(data)
         self._log_data['size data sent'] = [size_sent]
-        self._datetime_before_send = datetime.utcnow()
+        self._datetime_before_send = get_timestamp()
 
     def _get_extra_callback_args(self):
         args, kwargs = [] , {
@@ -213,17 +200,17 @@ class CsvLogging(BaseLogging):
     def callback(self, record_metadata, *args,
                  log_data=None, headers=None, topic=None,
                     timestamp=None, **kwargs):
-        frame = int(_find_header(headers,'frame',default=-1))
+        frame = int(get_header(headers,'frame',default=-1))
         log_data['offset sent'] = [record_metadata.offset]
         log_data['frame'] = [frame]
         log_data['topic to'] = [topic]
-        log_data['send time'] = [_calc_datetime(timestamp)]
+        log_data['send time'] = [calc_datetime(timestamp)]
         data = log_data[self._df_header].iloc[0]
         self._log.debug(data)
 
     def _after_send(self, data):
         if self._log_data.empty: return
-        send_time = _calc_datetime(self._datetime_before_send)
+        send_time = calc_datetime(self._datetime_before_send)
         self._log_data['send time'] = [send_time]
         for head in self._df_header:
             if head in self._log_data.columns: continue

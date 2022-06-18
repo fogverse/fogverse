@@ -20,6 +20,7 @@ class AbstractConsumer:
             'ConsumerStorage' in \
                 map(lambda x: x.__name__, type(self.consumer).mro()):
             self.message = data['message']
+            self._message_extra = data.get('extra',{})
             data = data['data']
         try:
             return bytes_to_numpy(data)
