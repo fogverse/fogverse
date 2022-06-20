@@ -30,9 +30,9 @@ class Runnable:
         await _call_func_async(self, 'close_consumer')
 
     async def run(self):
-        _call_func(self, '_before_start')
+        await _call_func_async(self, '_before_start')
         await self._start()
-        _call_func(self, '_after_start')
+        await _call_func_async(self, '_after_start')
         try:
             while True:
                 _call_func(self, '_before_receive')
