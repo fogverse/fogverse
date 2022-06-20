@@ -14,16 +14,24 @@ from .base import AbstractConsumer, AbstractProducer
 class AIOKafkaConsumer(AbstractConsumer):
     def __init__(self, loop=None):
         self._loop = loop or asyncio.get_event_loop()
-        self._consumer_topic = getattr(self, 'consumer_topic', None) or\
-                                os.getenv('CONSUMER_TOPIC').split(',')
+        self._topic_pattern = getattr(self, 'topic_pattern', None)
+        self._consumer_topic = os.getenv('CONSUMER_TOPIC', '') or\
+                                getattr(self, 'consumer_topic', [])
+        if isinstance(self._consumer_topic, str):
+            self._consumer_topic = self._consumer_topic.split(',')
+        self._consumer_servers = os.getenv('CONSUMER_SERVERS') or \
+                            getattr(self, 'consumer_servers', None)
         self._consumer_conf = getattr(self, 'consumer_conf', {})
         self._consumer_conf = {
             'loop': self._loop,
-            'bootstrap_servers': os.getenv('CONSUMER_SERVERS'),
+            'bootstrap_servers': self._consumer_servers,
             'group_id': os.getenv('GROUP_ID','group'),
             **self._consumer_conf}
-        self.consumer = _AIOKafkaConsumer(*self._consumer_topic,
-                                          **self._consumer_conf)
+        if self._consumer_topic:
+            self.consumer = _AIOKafkaConsumer(*self._consumer_topic,
+                                            **self._consumer_conf)
+        else:
+            self.consumer = _AIOKafkaConsumer(**self._consumer_conf)
 
     async def start_consumer(self):
         LOGGER = getattr(self, '_log', None)
@@ -31,6 +39,9 @@ class AIOKafkaConsumer(AbstractConsumer):
             LOGGER.info('Topic: %s', self._consumer_topic)
             LOGGER.info('Config: %s', self._consumer_conf)
         await self.consumer.start()
+        if self._topic_pattern:
+            self.consumer.subscribe(pattern=self._topic_pattern)
+        await asyncio.sleep(5) # wait until assigned to partition
         if getattr(self, 'read_last', True):
             await self.consumer.seek_to_end()
 
@@ -43,12 +54,14 @@ class AIOKafkaConsumer(AbstractConsumer):
 class AIOKafkaProducer(AbstractProducer):
     def __init__(self, loop=None):
         self._loop = loop or asyncio.get_event_loop()
-        self._producer_topic = os.getenv('PRODUCER_TOPIC') or \
+        self.producer_topic = os.getenv('PRODUCER_TOPIC') or \
                                 getattr(self, 'producer_topic', None)
+        self._producer_servers = os.getenv('PRODUCER_SERVERS') or \
+                            getattr(self, 'producer_servers', None)
         self._producer_conf = getattr(self, 'producer_conf', {})
         self._producer_conf = {
             'loop': self._loop,
-            'bootstrap_servers': os.getenv('PRODUCER_SERVERS'),
+            'bootstrap_servers': self._producer_servers,
             'client_id': os.getenv('CLIENT_ID',socket.gethostname()),
             **self._producer_conf}
         self.producer = _AIOKafkaProducer(**self._producer_conf)
@@ -65,7 +78,7 @@ class AIOKafkaProducer(AbstractProducer):
                    callback=None):
         key = key or getattr(self.message, 'key', None)
         self._headers = headers or getattr(self.message, 'headers', None)
-        self._topic = topic or self._producer_topic
+        self._topic = topic or self.producer_topic
         if isinstance(self._headers, tuple):
             self._headers = list(self._headers)
         future = await self.producer.send(self._topic,
@@ -94,7 +107,7 @@ def _get_cv_video_capture(device=0):
 
 class OpenCVConsumer(AbstractConsumer):
     def __init__(self, loop=None, executor=None):
-        self._device = getattr(self, 'device', 0)
+        self._device = os.getenv('DEVICE') or getattr(self, 'device', 0)
         self.consumer = getattr(self, 'consumer', None) or \
                             _get_cv_video_capture(self._device)
         self._loop = loop or asyncio.get_event_loop()
