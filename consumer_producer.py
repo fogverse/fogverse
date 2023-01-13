@@ -77,7 +77,7 @@ class AIOKafkaProducer(AbstractProducer):
     async def send(self, data, topic=None, key=None, headers=None,
                    callback=None):
         key = key or getattr(self.message, 'key', None)
-        self._headers = headers or getattr(self.message, 'headers', None)
+        self._headers = headers or getattr(self.message, 'headers', [])
         self._topic = topic or self.producer_topic
         if isinstance(self._headers, tuple):
             self._headers = list(self._headers)
