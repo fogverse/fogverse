@@ -65,12 +65,12 @@ def get_header(headers, key, default=None, decoder=None):
             return val
     return default
 
-def _encode(img, encoding):
-    _, encoded = cv2.imencode(f'.{encoding}', img)
+def _encode(img, encoding, *args):
+    _, encoded = cv2.imencode(f'.{encoding}', img, *args)
     return encoded
 
-def compress_encoding(img, encoding):
-    encoded = _encode(img, encoding)
+def compress_encoding(img, encoding, *args):
+    encoded = _encode(img, encoding, *args)
     return numpy_to_bytes(encoded)
 
 def _decode(img):
@@ -80,7 +80,7 @@ def recover_encoding(img_bytes):
     img = bytes_to_numpy(img_bytes)
     return _decode(img)
 
-def numpy_to_base64_url(img, encoding):
-    img = _encode(img, encoding)
+def numpy_to_base64_url(img, encoding, *args):
+    img = _encode(img, encoding, *args)
     b64 = base64.b64encode(img).decode()
     return f'data:image/{encoding};base64,{b64}'

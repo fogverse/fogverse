@@ -97,7 +97,7 @@ class CsvLogging(BaseLogging):
                  level=logging.DEBUG,
                  handler=None,
                  formatter=None,
-                 dirname=None, # locate the file relative to dirname
+                 dirname='logs', # relative to the file's dir
                  filename=None,
                  mode='w',
                  fmt=None,
@@ -106,7 +106,8 @@ class CsvLogging(BaseLogging):
                  csv_header=['asctime','name'],
                  df_header=['topic from','topic to','frame','offset received',
                             'frame delay','msg creation delay','consume time',
-                            'size data received','process time',
+                            'size data received','size data decoded',
+                            'process time','size data processed',
                             'size data sent','send time','offset sent'],
                  add_header=[]):
         self._df_header = df_header
@@ -115,9 +116,9 @@ class CsvLogging(BaseLogging):
         if fmt is None:
             fmt = f'%(asctime)s.%(msecs)03d{delimiter}%(name)s{delimiter}%(message)s'
         if filename is None:
-            filename = f'logs/log_{self.__class__.__name__}.csv'
-        if dirname is None:
-            dirname = Path(inspect.getfile(self.__class__)).resolve().parent
+            filename = f'log_{self.__class__.__name__}.csv'
+        dirname = Path(inspect.getfile(self.__class__)).resolve().parent \
+                    / dirname
         filename = Path(dirname).resolve() / filename
         # make log file directories
         _dirname = path.dirname(filename)
@@ -141,11 +142,12 @@ class CsvLogging(BaseLogging):
         self._log_data.drop(self._log_data.index, inplace=True)
         self._start = get_timestamp()
 
-    def _after_receive(self, _):
+    def _after_receive(self, data):
         delay_consume = calc_datetime(self._start)
+        self._log_data['size data received'] = [size_kb(data)]
         self._log_data['consume time'] = [delay_consume]
 
-    def _after_decode(self, _):
+    def _after_decode(self, data):
         if isinstance(self.message, ConsumerRecord):
             now = get_timestamp()
             frame_creation_time = get_header(self.message.headers,
@@ -173,18 +175,18 @@ class CsvLogging(BaseLogging):
         self._log_data['offset received'] = [offset_received]
         self._log_data['topic from'] = [topic_from]
 
-    def _before_process(self, value):
-        size_received = size_kb(value)
-        self._log_data['size data received'] = [size_received]
+        self._log_data['size data decoded'] = [size_kb(data)]
+
+    def _before_process(self, _):
         self._before_process_time = get_timestamp()
 
-    def _after_process(self, _):
+    def _after_process(self, result):
         delay_process = calc_datetime(self._before_process_time)
         self._log_data['process time'] = [delay_process]
+        self._log_data['size data processed'] = [size_kb(result)]
 
     def _before_send(self, data):
-        size_sent = size_kb(data)
-        self._log_data['size data sent'] = [size_sent]
+        self._log_data['size data sent'] = [size_kb(data)]
         self._datetime_before_send = get_timestamp()
 
     def _get_extra_callback_args(self):
@@ -215,5 +217,9 @@ class CsvLogging(BaseLogging):
         for head in self._df_header:
             if head in self._log_data.columns: continue
             self._log_data[head] = None
-        data = self._log_data[self._df_header].iloc[0]
-        self._log.debug(data)
+
+        size_sent = size_kb(data)
+        self._log_data['size data sent'] = [size_sent]
+
+        df_data = self._log_data[self._df_header].iloc[0]
+        self._log.debug(df_data)

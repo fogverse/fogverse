@@ -1,4 +1,5 @@
 import inspect
+import traceback
 
 def _get_func(obj, func_name):
     func = getattr(obj, func_name, None)
@@ -13,8 +14,8 @@ async def _call_func_async(obj, func_name):
     return await coro if coro is not None else None
 
 class Runnable:
-    def on_error(self, e):
-        raise e
+    def on_error(self, _):
+        traceback.print_exc()
 
     def process(self, data):
         return data
