@@ -16,6 +16,7 @@ class AbstractConsumer:
     def decode(self, data):
         if not getattr(self, 'auto_decode', True):
             return data
+        # if the consumer is a ConsumerStorage
         if getattr(self, 'consumer', None) is not None and \
             'ConsumerStorage' in \
                 map(lambda x: x.__name__, type(self.consumer).mro()):
@@ -24,7 +25,7 @@ class AbstractConsumer:
             data = data['data']
         try:
             return bytes_to_numpy(data)
-        except (OSError, ValueError, UnpicklingError):
+        except (OSError, ValueError, TypeError, UnpicklingError):
             pass
         try:
             return data.decode()
