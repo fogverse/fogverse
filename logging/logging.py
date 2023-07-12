@@ -144,8 +144,13 @@ class CsvLogging(BaseLogging):
 
     def _after_receive(self, data):
         delay_consume = calc_datetime(self._start)
-        self._log_data['size data received'] = [size_kb(data)]
         self._log_data['consume time'] = [delay_consume]
+
+        if isinstance(data, dict) and data.get('data') != None:
+            _size = size_kb(data['data'])
+        else:
+            _size = size_kb(data)
+        self._log_data['size data received'] = [_size]
 
     def _after_decode(self, data):
         if isinstance(self.message, ConsumerRecord):
