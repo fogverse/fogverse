@@ -190,4 +190,3 @@ class CsvLogging(BaseLogging):
 
         df_data = self.finalize_data()
         self._log.info(df_data)
-
