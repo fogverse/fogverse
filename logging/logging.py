@@ -43,60 +43,6 @@ class BaseLogging(AbstractLogging):
     def __init__(self,
                  name=None,
                  level=logging.INFO,
-                 handler=None,
-                 formatter=None):
-        if name is None:
-            name = self.__class__.__name__
-        self._log = _get_logger(name=name,
-                                level=level,
-                                handlers=handler,
-                                formatter=formatter)
-
-class DefaultLogging(BaseLogging):
-    def _before_start(self):
-        self._log.info('Starting')
-
-    def _after_start(self):
-        self._log.info('The consumer and/or producer have started')
-
-    def _before_receive(self):
-        self._log.debug('='*30)
-        self._start = time.time()
-
-    def _after_receive(self, data):
-        delay = _calc_delay(self._start)
-        self._log.debug('Consume time %s ms', delay)
-
-        if not isinstance(data, ConsumerRecord): return
-        creation_delay = _calc_delay(data.timestamp/1e3)
-        self._log.debug('Data received: %s %s %s %s %s %s ms',
-                        data.topic, data.partition, data.offset,
-                        data.key, data.headers, creation_delay)
-
-    def _before_process(self, value):
-        size = size_kb(value)
-        self._log.debug('Data received %s KB', size)
-        self._before_process_time = time.time()
-
-    def _after_process(self, _):
-        delay = _calc_delay(self._before_process_time)
-        self._log.debug('Process time %s ms', delay)
-
-    def _after_send(self, data):
-        self._log.debug('Sent data %s KB', size_kb(data))
-
-    def _before_close(self):
-        self._log.info('Closing')
-
-    def _after_close(self):
-        self._log.info('The consumer and/or producer have closed')
-
-class CsvLogging(BaseLogging):
-    def __init__(self,
-                 name=None,
-                 level=logging.DEBUG,
-                 handler=None,
-                 formatter=None,
                  dirname='logs', # relative to the file's dir
                  filename=None,
                  mode='w',
@@ -104,19 +50,18 @@ class CsvLogging(BaseLogging):
                  delimiter=',',
                  datefmt='%Y/%m/%d %H:%M:%S',
                  csv_header=['asctime','name'],
-                 df_header=['topic from','topic to','frame','offset received',
-                            'frame delay','msg creation delay','consume time',
-                            'size data received','size data decoded',
-                            'process time','size data processed',
-                            'size data sent','send time','offset sent'],
-                 add_header=[]):
-        self._df_header = df_header
-        csv_header.extend(df_header)
-        csv_header.extend(add_header)
+                 df_header=[],
+                 add_header=[],
+                 handler=None,
+                 formatter=None):
+        if name is None:
+            name = self.__class__.__name__
+        self.df_header = df_header + add_header
+        self.csv_header = csv_header + df_header
         if fmt is None:
             fmt = f'%(asctime)s.%(msecs)03d{delimiter}%(name)s{delimiter}%(message)s'
         if filename is None:
-            filename = f'log_{self.__class__.__name__}.csv'
+            filename = f'log_{name}.csv'
         dirname = Path(inspect.getfile(self.__class__)).resolve().parent \
                     / dirname
         filename = Path(dirname).resolve() / filename
@@ -127,16 +72,36 @@ class CsvLogging(BaseLogging):
             handler = CsvRotatingFileHandler(filename,
                                              fmt=fmt,
                                              datefmt=datefmt,
-                                             header=csv_header,
+                                             header=self.csv_header,
                                              delimiter=delimiter,
                                              mode=mode)
             formatter = CsvFormatter(fmt=fmt,
                                      datefmt=datefmt,
                                      delimiter=delimiter)
             handler.setFormatter(formatter)
-        super().__init__(name=name,level=level,handler=handler,
-                         formatter=formatter)
+        self._log = _get_logger(name=name,
+                                level=level,
+                                handlers=handler,
+                                formatter=formatter)
         self._log_data = pd.DataFrame()
+
+    def finalize_data(self):
+        for head in self.df_header:
+            if head in self._log_data.columns: continue
+            self._log_data[head] = None
+
+        df_data = self._log_data[self.df_header].iloc[0]
+        return df_data
+
+class CsvLogging(BaseLogging):
+    def __init__(self,
+                 df_header=['topic from','topic to','frame','offset received',
+                            'frame delay','msg creation delay','consume time',
+                            'size data received','size data decoded',
+                            'process time','size data processed',
+                            'size data sent','send time','offset sent'],
+                 **kwargs):
+        super().__init__(df_header=df_header,**kwargs)
 
     def _before_receive(self):
         self._log_data.drop(self._log_data.index, inplace=True)
@@ -212,19 +177,17 @@ class CsvLogging(BaseLogging):
         log_data['frame'] = [frame]
         log_data['topic to'] = [topic]
         log_data['send time'] = [calc_datetime(timestamp)]
-        data = log_data[self._df_header].iloc[0]
-        self._log.debug(data)
+        data = log_data[self.df_header].iloc[0]
+        self._log.info(data)
 
     def _after_send(self, data):
         if self._log_data.empty: return
         send_time = calc_datetime(self._datetime_before_send)
         self._log_data['send time'] = [send_time]
-        for head in self._df_header:
-            if head in self._log_data.columns: continue
-            self._log_data[head] = None
 
         size_sent = size_kb(data)
         self._log_data['size data sent'] = [size_sent]
 
-        df_data = self._log_data[self._df_header].iloc[0]
-        self._log.debug(df_data)
+        df_data = self.finalize_data()
+        self._log.info(df_data)
+
