@@ -1,1 +1,1 @@
-from .logging import DefaultLogging, CsvLogging
+from .logging import BaseLogging, CsvLogging
