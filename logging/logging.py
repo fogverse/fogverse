@@ -57,7 +57,7 @@ class BaseLogging(AbstractLogging):
         if name is None:
             name = self.__class__.__name__
         self.df_header = df_header + add_header
-        self.csv_header = csv_header + df_header
+        self.csv_header = csv_header + self.df_header
         if fmt is None:
             fmt = f'%(asctime)s.%(msecs)03d{delimiter}%(name)s{delimiter}%(message)s'
         if filename is None:
