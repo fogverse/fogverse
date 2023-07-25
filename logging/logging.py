@@ -96,10 +96,12 @@ class BaseLogging(AbstractLogging):
 class CsvLogging(BaseLogging):
     def __init__(self,
                  df_header=['topic from','topic to','frame','offset received',
-                            'frame delay','msg creation delay','consume time',
-                            'size data received','size data decoded',
+                            'frame delay','msg creation delay',
+                            'consume time','size data received',
+                            'decode time','size data decoded',
                             'process time','size data processed',
-                            'size data sent','send time','offset sent'],
+                            'encode time','size data encoded',
+                            'send time','size data sent','offset sent'],
                  **kwargs):
         super().__init__(df_header=df_header,**kwargs)
 
@@ -117,7 +119,13 @@ class CsvLogging(BaseLogging):
             _size = size_kb(data)
         self._log_data['size data received'] = [_size]
 
+    def _before_decode(self, _):
+        self._before_decode_time = get_timestamp()
+
     def _after_decode(self, data):
+        decoding_time = calc_datetime(self._before_decode_time)
+        self._log_data['decode time'] = [decoding_time]
+
         if isinstance(self.message, ConsumerRecord):
             now = get_timestamp()
             frame_creation_time = get_header(self.message.headers,
@@ -154,6 +162,14 @@ class CsvLogging(BaseLogging):
         delay_process = calc_datetime(self._before_process_time)
         self._log_data['process time'] = [delay_process]
         self._log_data['size data processed'] = [size_kb(result)]
+
+    def _before_encode(self, _):
+        self._before_encode_time = get_timestamp()
+
+    def _after_encode(self, data):
+        delay_encode = calc_datetime(self._before_encode_time)
+        self._log_data['encode time'] = [delay_encode]
+        self._log_data['size data encoded'] = [size_kb(data)]
 
     def _before_send(self, data):
         self._log_data['size data sent'] = [size_kb(data)]
