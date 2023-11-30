@@ -7,7 +7,7 @@ from aiokafka import (
     AIOKafkaConsumer as _AIOKafkaConsumer,
     AIOKafkaProducer as _AIOKafkaProducer
 )
-from .logging import CsvLogging
+from .fogverse_logging import CsvLogging
 
 from .base import AbstractConsumer, AbstractProducer
 

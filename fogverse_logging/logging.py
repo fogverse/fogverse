@@ -61,7 +61,9 @@ class BaseLogging(AbstractLogging):
         if fmt is None:
             fmt = f'%(asctime)s.%(msecs)03d{delimiter}%(name)s{delimiter}%(message)s'
         if filename is None:
-            filename = f'log_{name}.csv'
+            filename = f'{name}.csv'
+            if not filename.startswith('log'):
+                filename = f'log_{filename}'
         dirname = Path(inspect.getfile(self.__class__)).resolve().parent \
                     / dirname
         filename = Path(dirname).resolve() / filename
