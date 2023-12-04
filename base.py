@@ -52,7 +52,7 @@ class AbstractProducer:
         if type(data).__name__ == 'Tensor':
             data = data.cpu().numpy()
         if isinstance(data, np.ndarray):
-            encoding = getattr(self, 'encode_encoding')
+            encoding = getattr(self, 'encode_encoding', None)
             if encoding is not None:
                 return compress_encoding(data, encoding)
             return numpy_to_bytes(data)
