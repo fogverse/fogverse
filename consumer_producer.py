@@ -2,6 +2,8 @@ import asyncio
 import inspect
 import os
 import socket
+import sys
+import uuid
 
 from aiokafka import (
     AIOKafkaConsumer as _AIOKafkaConsumer,
@@ -25,7 +27,7 @@ class AIOKafkaConsumer(AbstractConsumer):
         self._consumer_conf = {
             'loop': self._loop,
             'bootstrap_servers': self._consumer_servers,
-            'group_id': os.getenv('GROUP_ID','group'),
+            'group_id': os.getenv('GROUP_ID', str(uuid.uuid4())),
             **self._consumer_conf}
         if self._consumer_topic:
             self.consumer = _AIOKafkaConsumer(*self._consumer_topic,
@@ -115,6 +117,10 @@ class OpenCVConsumer(AbstractConsumer):
 
     def close_consumer(self):
         self.consumer.release()
+
+    def receive_error(self, _):
+        print('Done OpenCVConsumer consuming the camera.')
+        sys.exit(0)
 
     def _receive(self):
         success, frame = self.consumer.read()
