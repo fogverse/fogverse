@@ -1,5 +1,4 @@
 import asyncio
-import inspect
 import os
 import socket
 import sys
@@ -76,29 +75,14 @@ class AIOKafkaProducer(AbstractProducer):
                 LOGGER.info('Topic: %s', self.producer_topic)
         await self.producer.start()
 
-    async def send(self, data, topic=None, key=None, headers=None,
-                   callback=None):
-        key = key or getattr(self.message, 'key', None)
-        self._headers = headers or getattr(self.message, 'headers', [])
-        self._topic = topic or self.producer_topic
-        if isinstance(self._headers, tuple):
-            self._headers = list(self._headers)
-        future = await self.producer.send(self._topic,
-                                          key=key,
-                                          value=data,
-                                          headers=self._headers)
-        callback = callback or getattr(self, 'callback', None)
-        if not callable(callback): return future
-        async def _call_callback_ack(args:list, kwargs:dict):
-            record_metadata = await future
-            res = callback(record_metadata, *args, **kwargs)
-            return (await res) if inspect.iscoroutine(res) else res
-        if hasattr(self, '_get_extra_callback_args'):
-            args, kwargs = self._get_extra_callback_args()
-        else:
-            args, kwargs = [], {}
-        coro = _call_callback_ack(args, kwargs)
-        return asyncio.ensure_future(coro) # awaitable
+    async def _send(self, data, *args, topic=None, headers=None, key=None, **kwargs):
+        if topic is None: raise ValueError('Topic should not be None.')
+        return await self.producer.send(topic,
+                                        *args,
+                                        value=data,
+                                        key=key,
+                                        headers=headers,
+                                        **kwargs)
 
     async def close_producer(self):
         await self.producer.stop()

@@ -81,6 +81,7 @@ def timestamp_to_datetime(timestamp, format=DATETIME_FORMAT):
 
 def calc_datetime(start, end=None, format=DATETIME_FORMAT, decimals=2,
                   utc=True):
+    if start is None: return -1
     if end is None:
         end = get_timestamp(utc=utc)
     elif isinstance(end, str):

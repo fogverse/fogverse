@@ -182,7 +182,7 @@ class CsvLogging(BaseLogging):
             'log_data': self._log_data.copy(),
             'headers': getattr(self,'_headers',None),
             'topic': getattr(self,'_topic',None),
-            'timestamp': self._datetime_before_send,
+            'timestamp': getattr(self, '_datetime_before_send', None),
         }
         self._log_data.drop(self._log_data.index, inplace=True)
         return args, kwargs
@@ -191,7 +191,8 @@ class CsvLogging(BaseLogging):
                  log_data=None, headers=None, topic=None,
                     timestamp=None, **kwargs):
         frame = int(get_header(headers,'frame',default=-1))
-        log_data['offset sent'] = [record_metadata.offset]
+        offset = getattr(record_metadata, 'offset', -1)
+        log_data['offset sent'] = [offset]
         log_data['frame'] = [frame]
         log_data['topic to'] = [topic]
         log_data['send time (ms)'] = [calc_datetime(timestamp)]
