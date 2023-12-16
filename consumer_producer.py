@@ -33,6 +33,7 @@ class AIOKafkaConsumer(AbstractConsumer):
                                             **self._consumer_conf)
         else:
             self.consumer = _AIOKafkaConsumer(**self._consumer_conf)
+        self.seeking_end = None
 
     async def start_consumer(self):
         LOGGER = getattr(self, '_log', None)
@@ -47,6 +48,11 @@ class AIOKafkaConsumer(AbstractConsumer):
             await self.consumer.seek_to_end()
 
     async def receive(self):
+        if getattr(self, 'always_read_last', False):
+            if asyncio.isfuture(self.seeking_end):
+                await self.seeking_end
+            self.seeking_end = \
+                asyncio.ensure_future(self.consumer.seek_to_end())
         return await self.consumer.getone()
 
     async def close_consumer(self):
