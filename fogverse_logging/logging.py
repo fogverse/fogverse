@@ -1,7 +1,6 @@
 import inspect
 import logging
 import time
-import pandas as pd
 
 from .formatter import CsvFormatter
 from .handler import CsvRotatingFileHandler
@@ -85,15 +84,18 @@ class BaseLogging(AbstractLogging):
                                 level=level,
                                 handlers=handler,
                                 formatter=formatter)
-        self._log_data = pd.DataFrame()
+        self._log_data = {}
 
-    def finalize_data(self):
-        for head in self.df_header:
-            if head in self._log_data.columns: continue
-            self._log_data[head] = None
+    def finalize_data(self, data=None, default_none=None):
+        if data is None:
+            data = self._log_data
 
-        df_data = self._log_data[self.df_header].iloc[0]
-        return df_data
+        res = []
+        for header in self.df_header:
+            _data = data.get(header, default_none)
+            res.append(_data)
+
+        return res
 
 class CsvLogging(BaseLogging):
     def __init__(self,
@@ -108,25 +110,25 @@ class CsvLogging(BaseLogging):
         super().__init__(df_header=df_header,**kwargs)
 
     def _before_receive(self):
-        self._log_data.drop(self._log_data.index, inplace=True)
+        self._log_data.clear()
         self._start = get_timestamp()
 
     def _after_receive(self, data):
         delay_consume = calc_datetime(self._start)
-        self._log_data['consume time (ms)'] = [delay_consume]
+        self._log_data['consume time (ms)'] = delay_consume
 
         if isinstance(data, dict) and data.get('data') != None:
             _size = size_kb(data['data'])
         else:
             _size = size_kb(data)
-        self._log_data['size data received (KB)'] = [_size]
+        self._log_data['size data received (KB)'] = _size
 
     def _before_decode(self, _):
         self._before_decode_time = get_timestamp()
 
     def _after_decode(self, data):
         decoding_time = calc_datetime(self._before_decode_time)
-        self._log_data['decode time (ms)'] = [decoding_time]
+        self._log_data['decode time (ms)'] = decoding_time
 
         if isinstance(self.message, ConsumerRecord):
             now = get_timestamp()
@@ -141,7 +143,7 @@ class CsvLogging(BaseLogging):
             topic_from = self.message.topic
         else:
             frame_delay = -1
-            creation_delay = self._log_data['consume time (ms)'][0]
+            creation_delay = self._log_data['consume time (ms)']
             offset_received = -1
             topic_from = None
 
@@ -149,32 +151,32 @@ class CsvLogging(BaseLogging):
         if extras:
             consume_time = extras.get('consume time (ms)')
             if consume_time:
-                self._log_data['consume time (ms)'] = [consume_time]
-        self._log_data['frame delay (ms)'] = [frame_delay]
-        self._log_data['msg creation delay (ms)'] = [creation_delay]
-        self._log_data['offset received'] = [offset_received]
-        self._log_data['topic from'] = [topic_from]
+                self._log_data['consume time (ms)'] = consume_time
+        self._log_data['frame delay (ms)'] = frame_delay
+        self._log_data['msg creation delay (ms)'] = creation_delay
+        self._log_data['offset received'] = offset_received
+        self._log_data['topic from'] = topic_from
 
-        self._log_data['size data decoded (KB)'] = [size_kb(data)]
+        self._log_data['size data decoded (KB)'] = size_kb(data)
 
     def _before_process(self, _):
         self._before_process_time = get_timestamp()
 
     def _after_process(self, result):
         delay_process = calc_datetime(self._before_process_time)
-        self._log_data['process time (ms)'] = [delay_process]
-        self._log_data['size data processed (KB)'] = [size_kb(result)]
+        self._log_data['process time (ms)'] = delay_process
+        self._log_data['size data processed (KB)'] = size_kb(result)
 
     def _before_encode(self, _):
         self._before_encode_time = get_timestamp()
 
     def _after_encode(self, data):
         delay_encode = calc_datetime(self._before_encode_time)
-        self._log_data['encode time (ms)'] = [delay_encode]
-        self._log_data['size data encoded (KB)'] = [size_kb(data)]
+        self._log_data['encode time (ms)'] = delay_encode
+        self._log_data['size data encoded (KB)'] = size_kb(data)
 
     def _before_send(self, data):
-        self._log_data['size data sent (KB)'] = [size_kb(data)]
+        self._log_data['size data sent (KB)'] = size_kb(data)
         self._datetime_before_send = get_timestamp()
 
     def _get_extra_callback_args(self):
@@ -184,7 +186,7 @@ class CsvLogging(BaseLogging):
             'topic': getattr(self,'_topic',None),
             'timestamp': getattr(self, '_datetime_before_send', None),
         }
-        self._log_data.drop(self._log_data.index, inplace=True)
+        self._log_data.clear()
         return args, kwargs
 
     def callback(self, record_metadata, *args,
@@ -192,20 +194,20 @@ class CsvLogging(BaseLogging):
                     timestamp=None, **kwargs):
         frame = int(get_header(headers,'frame',default=-1))
         offset = getattr(record_metadata, 'offset', -1)
-        log_data['offset sent'] = [offset]
-        log_data['frame'] = [frame]
-        log_data['topic to'] = [topic]
-        log_data['send time (ms)'] = [calc_datetime(timestamp)]
-        data = log_data[self.df_header].iloc[0]
-        self._log.info(data)
+        log_data['offset sent'] = offset
+        log_data['frame'] = frame
+        log_data['topic to'] = topic
+        log_data['send time (ms)'] = calc_datetime(timestamp)
+        res_data = self.finalize_data(log_data)
+        self._log.info(res_data)
 
     def _after_send(self, data):
-        if self._log_data.empty: return
+        if len(self._log_data) == 0: return
         send_time = calc_datetime(self._datetime_before_send)
-        self._log_data['send time (ms)'] = [send_time]
+        self._log_data['send time (ms)'] = send_time
 
         size_sent = size_kb(data)
-        self._log_data['size data sent (KB)'] = [size_sent]
+        self._log_data['size data sent (KB)'] = size_sent
 
         df_data = self.finalize_data()
         self._log.info(df_data)
