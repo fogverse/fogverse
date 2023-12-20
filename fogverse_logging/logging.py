@@ -1,14 +1,20 @@
+import asyncio
 import inspect
+import json
 import logging
+import os
+import secrets
+import socket
 import time
 
 from .formatter import CsvFormatter
 from .handler import CsvRotatingFileHandler
 from .base import AbstractLogging
 
-from fogverse.util import calc_datetime, get_header, get_timestamp, size_kb
+from fogverse.util import (calc_datetime, get_header, get_timestamp, size_kb,
+                           get_timestamp_str)
 
-from aiokafka import ConsumerRecord
+from aiokafka import ConsumerRecord, AIOKafkaProducer as _AIOKafkaProducer
 from os import makedirs, path
 from pathlib import Path
 
@@ -53,8 +59,8 @@ class BaseLogging(AbstractLogging):
                  add_header=[],
                  handler=None,
                  formatter=None):
-        if name is None:
-            name = self.__class__.__name__
+        self._name = name or self.__class__.__name__
+        self._unique_id = secrets.token_hex(5)
         self.df_header = df_header + add_header
         self.csv_header = csv_header + self.df_header
         if fmt is None:
@@ -80,7 +86,7 @@ class BaseLogging(AbstractLogging):
                                      datefmt=datefmt,
                                      delimiter=delimiter)
             handler.setFormatter(formatter)
-        self._log = _get_logger(name=name,
+        self._log = _get_logger(name=self._name,
                                 level=level,
                                 handlers=handler,
                                 formatter=formatter)
@@ -91,11 +97,12 @@ class BaseLogging(AbstractLogging):
             data = self._log_data
 
         res = []
-        for header in self.df_header:
+        headers = self.df_header
+        for header in headers:
             _data = data.get(header, default_none)
             res.append(_data)
 
-        return res
+        return headers, res
 
 class CsvLogging(BaseLogging):
     def __init__(self,
@@ -106,8 +113,46 @@ class CsvLogging(BaseLogging):
                             'process time (ms)','size data processed (KB)',
                             'encode time (ms)','size data encoded (KB)',
                             'send time (ms)','size data sent (KB)','offset sent'],
+                 remote_logging=False,
+                 loop=None,
                  **kwargs):
+        self._loop = loop or asyncio.get_event_loop()
+        self._logging_producer = None
+        if remote_logging:
+            # self._bg_tasks = set()
+            self._logging_topic = os.getenv('LOGGING_TOPIC') or \
+                getattr(self, 'logging_topic', None) or \
+                'fogverse-profiling'
+            assert self._logging_topic is not None, \
+                'Setting remote_log=True for CsvLogging means there should\n'\
+                'be topic for logger to produce. Please set LOGGING_TOPIC env,\n'\
+                'or self.logging_topic var.'
+
+            self._logging_producer_servers = \
+                os.getenv('LOGGING_PRODUCER_SERVERS') or \
+                getattr(self, 'LOGGING_producer_servers', None) or \
+                os.getenv('PRODUCER_SERVERS') or \
+                getattr(self, 'producer_servers', None)
+            assert self._logging_producer_servers is not None, \
+                'Setting remote_log=True for CsvLogging means there should\n'\
+                'be kafka server address for logger to produce. Please set\n'\
+                'LOGGING_PRODUCER_SERVERS env, or self.logging_producer_servers var,\n'\
+                'or PRODUCER_SERVERS env, or self.producer_servers var.'
+
+            self._logging_producer_conf = getattr(self, 'logging_producer_conf', {})
+            _logging_producer_conf = {
+                'loop': self._loop,
+                'bootstrap_servers': self._logging_producer_servers,
+                'client_id': os.getenv('CLIENT_ID', socket.gethostname()),
+                **self._logging_producer_conf}
+            self._logging_producer = _AIOKafkaProducer(**_logging_producer_conf)
+            self._target_latency = int(os.getenv('TARGET_LATENCY', '500')) # ms
         super().__init__(df_header=df_header,**kwargs)
+
+    async def start_producer(self):
+        await super().start_producer()
+        if self._logging_producer:
+            await self._logging_producer.start()
 
     def _before_receive(self):
         self._log_data.clear()
@@ -189,7 +234,19 @@ class CsvLogging(BaseLogging):
         self._log_data.clear()
         return args, kwargs
 
-    def callback(self, record_metadata, *args,
+    async def _send_logging_data(self, log_headers, log_data) -> asyncio.Future:
+        if self._logging_producer is None: return
+        send_data = {
+            'name': f'{self._name}_{self._unique_id}',
+            'client': socket.gethostname(),
+            'log headers': ['timestamp', *log_headers],
+            'log data': [get_timestamp_str(), *log_data],
+        }
+        send_data = json.dumps(send_data, default=vars).encode()
+        await self._logging_producer.send(topic=self._logging_topic,
+                                                   value=send_data)
+
+    async def callback(self, record_metadata, *args,
                  log_data=None, headers=None, topic=None,
                     timestamp=None, **kwargs):
         frame = int(get_header(headers,'frame',default=-1))
@@ -198,7 +255,9 @@ class CsvLogging(BaseLogging):
         log_data['frame'] = frame
         log_data['topic to'] = topic
         log_data['send time (ms)'] = calc_datetime(timestamp)
-        res_data = self.finalize_data(log_data)
+
+        log_headers, res_data = self.finalize_data(log_data)
+        await self._send_logging_data(log_headers, res_data)
         self._log.info(res_data)
 
     def _after_send(self, data):
@@ -209,5 +268,6 @@ class CsvLogging(BaseLogging):
         size_sent = size_kb(data)
         self._log_data['size data sent (KB)'] = size_sent
 
-        df_data = self.finalize_data()
-        self._log.info(df_data)
+        log_headers, res_data = self.finalize_data()
+        self._send_logging_data(log_headers, res_data)
+        self._log.info(res_data)
