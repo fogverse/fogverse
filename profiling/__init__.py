@@ -1,5 +1,4 @@
 import asyncio
-import inspect
 import json
 import logging
 import os
@@ -7,89 +6,22 @@ import secrets
 import socket
 import time
 
-from .formatter import CsvFormatter
-from .handler import CsvRotatingFileHandler
-from .base import AbstractLogging
+from .base import AbstractProfiling
 
 from fogverse.util import (calc_datetime, get_header, get_timestamp, size_kb,
                            get_timestamp_str)
+from fogverse.fogverse_logging import FogVerseLogging
 
 from aiokafka import ConsumerRecord, AIOKafkaProducer as _AIOKafkaProducer
-from os import makedirs, path
-from pathlib import Path
-
-DEFAULT_FMT = '%(levelname)s | %(name)s | %(message)s'
-
-def _get_logger(name=None,
-                level=None,
-                handlers=[],
-                formatter=None):
-    logger = logging.getLogger(name)
-    logger.setLevel(level or logging.DEBUG)
-
-    if not handlers:
-        handler = logging.StreamHandler()
-        formatter = formatter or logging.Formatter(fmt=DEFAULT_FMT)
-        handler.setFormatter(formatter)
-
-        handlers = [handler]
-
-    if type(handlers) not in (list,tuple): handlers = [handlers]
-    for h in handlers:
-        logger.addHandler(h)
-    return logger
 
 def _calc_delay(start, end=None, decimals=2):
     end = end or time.time()
     delay = (end - start) * 1E3
     return round(delay, decimals)
 
-class BaseLogging(AbstractLogging):
-    def __init__(self,
-                 name=None,
-                 level=logging.INFO,
-                 dirname='logs', # relative to the file's dir
-                 filename=None,
-                 mode='w',
-                 fmt=None,
-                 delimiter=',',
-                 datefmt='%Y/%m/%d %H:%M:%S',
-                 csv_header=['asctime','name'],
-                 df_header=[],
-                 add_header=[],
-                 handler=None,
-                 formatter=None):
-        self._name = name or self.__class__.__name__
-        self._unique_id = secrets.token_hex(5)
-        self.df_header = df_header + add_header
-        self.csv_header = csv_header + self.df_header
-        if fmt is None:
-            fmt = f'%(asctime)s.%(msecs)03d{delimiter}%(name)s{delimiter}%(message)s'
-        if filename is None:
-            filename = f'{name}.csv'
-            if not filename.startswith('log'):
-                filename = f'log_{filename}'
-        dirname = Path(inspect.getfile(self.__class__)).resolve().parent \
-                    / dirname
-        filename = Path(dirname).resolve() / filename
-        # make log file directories
-        _dirname = path.dirname(filename)
-        if _dirname: makedirs(_dirname, exist_ok=True)
-        if not handler:
-            handler = CsvRotatingFileHandler(filename,
-                                             fmt=fmt,
-                                             datefmt=datefmt,
-                                             header=self.csv_header,
-                                             delimiter=delimiter,
-                                             mode=mode)
-            formatter = CsvFormatter(fmt=fmt,
-                                     datefmt=datefmt,
-                                     delimiter=delimiter)
-            handler.setFormatter(formatter)
-        self._log = _get_logger(name=self._name,
-                                level=level,
-                                handlers=handler,
-                                formatter=formatter)
+class BaseProfiling(AbstractProfiling):
+    def __init__(self, loop=None):
+        self._loop = loop or asyncio.get_event_loop()
         self._log_data = {}
 
     def finalize_data(self, data=None, default_none=None):
@@ -97,15 +29,17 @@ class BaseLogging(AbstractLogging):
             data = self._log_data
 
         res = []
-        headers = self.df_header
+        headers = self._df_header
         for header in headers:
             _data = data.get(header, default_none)
             res.append(_data)
 
         return headers, res
 
-class CsvLogging(BaseLogging):
+class Profiling(BaseProfiling):
     def __init__(self,
+                 name=None,
+                 dirname=None,
                  df_header=['topic from','topic to','frame','offset received',
                             'frame delay (ms)','msg creation delay (ms)',
                             'consume time (ms)','size data received (KB)',
@@ -114,17 +48,20 @@ class CsvLogging(BaseLogging):
                             'encode time (ms)','size data encoded (KB)',
                             'send time (ms)','size data sent (KB)','offset sent'],
                  remote_logging=False,
-                 loop=None,
-                 **kwargs):
-        self._loop = loop or asyncio.get_event_loop()
+                 logger=None,
+                 loop=None):
+        super().__init__(loop=loop)
+        self._logging_name = name or self.__class__.__name__
+        self._unique_id = secrets.token_hex(3)
         self._logging_producer = None
+        self._df_header = df_header
         if remote_logging:
             # self._bg_tasks = set()
             self._logging_topic = os.getenv('LOGGING_TOPIC') or \
                 getattr(self, 'logging_topic', None) or \
                 'fogverse-profiling'
             assert self._logging_topic is not None, \
-                'Setting remote_log=True for CsvLogging means there should\n'\
+                'Setting remote_log=True for Profiling means there should\n'\
                 'be topic for logger to produce. Please set LOGGING_TOPIC env,\n'\
                 'or self.logging_topic var.'
 
@@ -134,7 +71,7 @@ class CsvLogging(BaseLogging):
                 os.getenv('PRODUCER_SERVERS') or \
                 getattr(self, 'producer_servers', None)
             assert self._logging_producer_servers is not None, \
-                'Setting remote_log=True for CsvLogging means there should\n'\
+                'Setting remote_log=True for Profiling means there should\n'\
                 'be kafka server address for logger to produce. Please set\n'\
                 'LOGGING_PRODUCER_SERVERS env, or self.logging_producer_servers var,\n'\
                 'or PRODUCER_SERVERS env, or self.producer_servers var.'
@@ -146,8 +83,11 @@ class CsvLogging(BaseLogging):
                 'client_id': os.getenv('CLIENT_ID', socket.gethostname()),
                 **self._logging_producer_conf}
             self._logging_producer = _AIOKafkaProducer(**_logging_producer_conf)
-            self._target_latency = int(os.getenv('TARGET_LATENCY', '500')) # ms
-        super().__init__(df_header=df_header,**kwargs)
+
+        self._log = logger or FogVerseLogging(name=self._logging_name,
+                                              dirname=dirname,
+                                              df_header=self._df_header,
+                                              level=logging.FOGV_CSV_LOG_NUM)
 
     async def start_producer(self):
         await super().start_producer()
@@ -237,7 +177,7 @@ class CsvLogging(BaseLogging):
     async def _send_logging_data(self, log_headers, log_data) -> asyncio.Future:
         if self._logging_producer is None: return
         send_data = {
-            'name': f'{self._name}_{self._unique_id}',
+            'name': f'{self._logging_name}_{self._unique_id}',
             'client': socket.gethostname(),
             'log headers': ['timestamp', *log_headers],
             'log data': [get_timestamp_str(), *log_data],
@@ -258,7 +198,7 @@ class CsvLogging(BaseLogging):
 
         log_headers, res_data = self.finalize_data(log_data)
         await self._send_logging_data(log_headers, res_data)
-        self._log.info(res_data)
+        self._log.csv_log(res_data)
 
     def _after_send(self, data):
         if len(self._log_data) == 0: return
@@ -270,4 +210,4 @@ class CsvLogging(BaseLogging):
 
         log_headers, res_data = self.finalize_data()
         self._send_logging_data(log_headers, res_data)
-        self._log.info(res_data)
+        self._log.csv_log(res_data)

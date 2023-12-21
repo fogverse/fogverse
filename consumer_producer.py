@@ -8,8 +8,7 @@ from aiokafka import (
     AIOKafkaConsumer as _AIOKafkaConsumer,
     AIOKafkaProducer as _AIOKafkaProducer
 )
-from .fogverse_logging import CsvLogging
-
+from .fogverse_logging import FogVerseLogging
 from .base import AbstractConsumer, AbstractProducer
 
 class AIOKafkaConsumer(AbstractConsumer):
@@ -26,7 +25,7 @@ class AIOKafkaConsumer(AbstractConsumer):
         self._consumer_conf = {
             'loop': self._loop,
             'bootstrap_servers': self._consumer_servers,
-            'group_id': os.getenv('GROUP_ID', str(uuid.uuid4())),
+            'group_id': os.getenv('GROUP_ID') or str(uuid.uuid4()),
             **self._consumer_conf}
         if self._consumer_topic:
             self.consumer = _AIOKafkaConsumer(*self._consumer_topic,
@@ -36,10 +35,10 @@ class AIOKafkaConsumer(AbstractConsumer):
         self.seeking_end = None
 
     async def start_consumer(self):
-        LOGGER = getattr(self, '_log', None)
-        if LOGGER is not None and not isinstance(self, CsvLogging):
-            LOGGER.info('Topic: %s', self._consumer_topic)
-            LOGGER.info('Config: %s', self._consumer_conf)
+        logger = getattr(self, '_log', None)
+        if logger is not None and isinstance(logger, FogVerseLogging):
+            logger.std_log('Topic: %s', self._consumer_topic)
+            logger.std_log('Config: %s', self._consumer_conf)
         await self.consumer.start()
         if self._topic_pattern:
             self.consumer.subscribe(pattern=self._topic_pattern)
@@ -74,11 +73,11 @@ class AIOKafkaProducer(AbstractProducer):
         self.producer = _AIOKafkaProducer(**self._producer_conf)
 
     async def start_producer(self):
-        LOGGER = getattr(self, '_log', None)
-        if LOGGER is not None and not isinstance(self, CsvLogging):
-            LOGGER.info('Config: %s', self._producer_conf)
+        logger = getattr(self, '_log', None)
+        if logger is not None and isinstance(logger, FogVerseLogging):
+            logger.std_log('Config: %s', self._producer_conf)
             if getattr(self, 'producer_topic', None) is not None:
-                LOGGER.info('Topic: %s', self.producer_topic)
+                logger.std_log('Topic: %s', self.producer_topic)
         await self.producer.start()
 
     async def _send(self, data, *args, topic=None, headers=None, key=None, **kwargs):
