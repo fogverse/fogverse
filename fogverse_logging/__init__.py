@@ -14,7 +14,7 @@ logging.addLevelName(logging.FOGV_STDOUT, "FOGV_STDOUT")
 logging.addLevelName(logging.FOGV_CSV, "FOGV_CSV")
 logging.addLevelName(logging.FOGV_FILE, "FOGV_FILE")
 
-DEFAULT_FMT = '[%(levelname)s][%(name)s] %(message)s'
+DEFAULT_FMT = '[%(asctime)s][%(levelname)s][%(name)s] %(message)s'
 
 def get_logger(name=None,
                level=logging.DEBUG,
