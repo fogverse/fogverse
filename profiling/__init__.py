@@ -90,10 +90,17 @@ class Profiling(BaseProfiling):
         self._log = logger or FogVerseLogging(name=self._profiling_name,
                                               dirname=dirname,
                                               csv_header=self._df_header,
-                                              level=logging.FOGV_CSV_LOG)
+                                              level=logging.FOGV_CSV)
 
     async def start_producer(self):
-        await super().start_producer()
+        if hasattr(super(), 'start_producer'):
+            await super().start_producer()
+        if self._logging_producer:
+            await self._logging_producer.start()
+
+    async def stop_producer(self):
+        if hasattr(super(), 'stop_producer'):
+            await super().stop_producer()
         if self._logging_producer:
             await self._logging_producer.start()
 
@@ -180,11 +187,15 @@ class Profiling(BaseProfiling):
     async def _send_logging_data(self, log_headers, log_data) -> asyncio.Future:
         if self._logging_producer is None: return
         send_data = {
-            'name': f'{self._logging_name}_{self._unique_id}',
+            'name': self._remote_logging_name,
             'client': socket.gethostname(),
             'log headers': ['timestamp', *log_headers],
             'log data': [get_timestamp_str(), *log_data],
+            'extras': getattr(self, 'extra_remote_data', {}),
         }
+        _edit_remote_data = getattr(self, '_edit_remote_data', None)
+        if callable(_edit_remote_data):
+            self._edit_remote_data(send_data)
         send_data = json.dumps(send_data, default=vars).encode()
         await self._logging_producer.send(topic=self._logging_topic,
                                                    value=send_data)

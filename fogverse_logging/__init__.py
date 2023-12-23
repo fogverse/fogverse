@@ -6,13 +6,13 @@ from .formatter import CsvFormatter
 
 from pathlib import Path
 
-logging.FOGV_STDOUT_LOG = logging.INFO + 3
-logging.FOGV_CSV_LOG = logging.INFO + 2
-logging.FOGV_FILE_LOG = logging.INFO + 1
+logging.FOGV_STDOUT = logging.INFO + 3
+logging.FOGV_CSV = logging.INFO + 2
+logging.FOGV_FILE = logging.INFO + 1
 
-logging.addLevelName(logging.FOGV_STDOUT_LOG, "FOGV_STDOUT_LOG")
-logging.addLevelName(logging.FOGV_CSV_LOG, "FOGV_CSV_LOG")
-logging.addLevelName(logging.FOGV_FILE_LOG, "FOGV_FILE_LOG")
+logging.addLevelName(logging.FOGV_STDOUT, "FOGV_STDOUT")
+logging.addLevelName(logging.FOGV_CSV, "FOGV_CSV")
+logging.addLevelName(logging.FOGV_FILE, "FOGV_FILE")
 
 DEFAULT_FMT = '[%(levelname)s][%(name)s] %(message)s'
 
@@ -95,7 +95,7 @@ class FogVerseLogging:
                  name=None,
                  dirname='logs',
                  csv_header=[],
-                 level=logging.FOGV_STDOUT_LOG,
+                 level=logging.FOGV_STDOUT,
                  std_log_kwargs={},
                  csv_log_kwargs={},
                  file_log_kwargs={}):
@@ -113,19 +113,19 @@ class FogVerseLogging:
         self._csv_log.setLevel(level)
 
     def std_log(self, message, *args, **kwargs):
-        if self._std_log.isEnabledFor(logging.FOGV_STDOUT_LOG):
-            self._std_log._log(logging.FOGV_STDOUT_LOG, message,
+        if self._std_log.isEnabledFor(logging.FOGV_STDOUT):
+            self._std_log._log(logging.FOGV_STDOUT, message,
                                args, **kwargs)
-        if self._file_log.isEnabledFor(logging.FOGV_FILE_LOG):
-            self._file_log._log(logging.FOGV_FILE_LOG, message,
+        if self._file_log.isEnabledFor(logging.FOGV_FILE):
+            self._file_log._log(logging.FOGV_FILE, message,
                                 args, **kwargs)
 
     def csv_log(self, message, *args, **kwargs):
-        if self._csv_log.isEnabledFor(logging.FOGV_CSV_LOG):
-            self._csv_log._log(logging.FOGV_CSV_LOG, message,
+        if self._csv_log.isEnabledFor(logging.FOGV_CSV):
+            self._csv_log._log(logging.FOGV_CSV, message,
                                 args, **kwargs)
 
     def file_log(self, message, *args, **kwargs):
-        if self._file_log.isEnabledFor(logging.FOGV_FILE_LOG):
-            self._file_log._log(logging.FOGV_FILE_LOG, message,
+        if self._file_log.isEnabledFor(logging.FOGV_FILE):
+            self._file_log._log(logging.FOGV_FILE, message,
                                 args, **kwargs)
