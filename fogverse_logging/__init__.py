@@ -6,13 +6,13 @@ from .formatter import CsvFormatter
 
 from pathlib import Path
 
-logging.FOGV_STDOUT_LOG_NUM = logging.INFO + 3
-logging.FOGV_CSV_LOG_NUM = logging.INFO + 2
-logging.FOGV_FILE_LOG_NUM = logging.INFO + 1
+logging.FOGV_STDOUT_LOG = logging.INFO + 3
+logging.FOGV_CSV_LOG = logging.INFO + 2
+logging.FOGV_FILE_LOG = logging.INFO + 1
 
-logging.addLevelName(logging.FOGV_STDOUT_LOG_NUM, "FOGV_STDOUT_LOG")
-logging.addLevelName(logging.FOGV_CSV_LOG_NUM, "FOGV_CSV_LOG")
-logging.addLevelName(logging.FOGV_FILE_LOG_NUM, "FOGV_FILE_LOG")
+logging.addLevelName(logging.FOGV_STDOUT_LOG, "FOGV_STDOUT_LOG")
+logging.addLevelName(logging.FOGV_CSV_LOG, "FOGV_CSV_LOG")
+logging.addLevelName(logging.FOGV_FILE_LOG, "FOGV_FILE_LOG")
 
 DEFAULT_FMT = '%(levelname)s | %(name)s | %(message)s'
 
@@ -65,7 +65,7 @@ def get_csv_logger(name=None,
                    delimiter=',',
                    datefmt='%Y/%m/%d %H:%M:%S',
                    csv_header=['asctime','name'],
-                   headers=[],
+                   header=[],
                    **kwargs):
     if fmt is None:
         fmt = f'%(asctime)s.%(msecs)03d{delimiter}%(name)s{delimiter}%(message)s'
@@ -81,7 +81,7 @@ def get_csv_logger(name=None,
         handler = CsvRotatingFileHandler(filename,
                                          fmt=fmt,
                                          datefmt=datefmt,
-                                         header=csv_header+headers,
+                                         header=csv_header+header,
                                          delimiter=delimiter,
                                          mode=mode)
         formatter = CsvFormatter(fmt=fmt,
@@ -94,17 +94,17 @@ class FogVerseLogging:
     def __init__(self,
                  name=None,
                  dirname='logs',
-                 df_header=[],
-                 level=logging.FOGV_STDOUT_LOG_NUM,
+                 csv_header=[],
+                 level=logging.FOGV_STDOUT_LOG,
                  std_log_kwargs={},
                  csv_log_kwargs={},
                  file_log_kwargs={}):
-        self.df_header = df_header
-        self._std_log = get_logger(name=f'std_{name}',level=level,**std_log_kwargs)
+        self._std_log = get_logger(name=f'std_{name}',level=level,
+                                   **std_log_kwargs)
         self._file_log = get_file_logger(name=f'file_{name}',level=level,
                                          dirname=dirname,**file_log_kwargs)
         self._csv_log = get_csv_logger(name=f'csv_{name}',level=level,
-                                       dirname=dirname,headers=self.df_header,
+                                       dirname=dirname,header=csv_header,
                                        **csv_log_kwargs)
 
     def setLevel(self, level):
@@ -113,14 +113,19 @@ class FogVerseLogging:
         self._csv_log.setLevel(level)
 
     def std_log(self, message, *args, **kwargs):
-        if self._std_log.isEnabledFor(logging.FOGV_STDOUT_LOG_NUM):
-            self._std_log._log(logging.FOGV_STDOUT_LOG_NUM, message,
+        if self._std_log.isEnabledFor(logging.FOGV_STDOUT_LOG):
+            self._std_log._log(logging.FOGV_STDOUT_LOG, message,
                                args, **kwargs)
-        if self._file_log.isEnabledFor(logging.FOGV_FILE_LOG_NUM):
-            self._file_log._log(logging.FOGV_FILE_LOG_NUM, message,
+        if self._file_log.isEnabledFor(logging.FOGV_FILE_LOG):
+            self._file_log._log(logging.FOGV_FILE_LOG, message,
                                 args, **kwargs)
 
     def csv_log(self, message, *args, **kwargs):
-        if self._csv_log.isEnabledFor(logging.FOGV_CSV_LOG_NUM):
-            self._csv_log._log(logging.FOGV_CSV_LOG_NUM, message,
+        if self._csv_log.isEnabledFor(logging.FOGV_CSV_LOG):
+            self._csv_log._log(logging.FOGV_CSV_LOG, message,
+                                args, **kwargs)
+
+    def file_log(self, message, *args, **kwargs):
+        if self._file_log.isEnabledFor(logging.FOGV_FILE_LOG):
+            self._file_log._log(logging.FOGV_FILE_LOG, message,
                                 args, **kwargs)
