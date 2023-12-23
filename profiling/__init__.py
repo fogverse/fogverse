@@ -48,11 +48,14 @@ class Profiling(BaseProfiling):
                             'encode time (ms)','size data encoded (KB)',
                             'send time (ms)','size data sent (KB)','offset sent'],
                  remote_logging=False,
+                 remote_logging_name=None,
                  logger=None,
                  loop=None):
         super().__init__(loop=loop)
-        self._logging_name = name or self.__class__.__name__
         self._unique_id = secrets.token_hex(3)
+        self._profiling_name = name or \
+            f'{self.__class__.__name__}_{self._unique_id}'
+        self._remote_logging_name = remote_logging_name or self._profiling_name
         self._logging_producer = None
         self._df_header = df_header
         if remote_logging:
@@ -84,10 +87,10 @@ class Profiling(BaseProfiling):
                 **self._logging_producer_conf}
             self._logging_producer = _AIOKafkaProducer(**_logging_producer_conf)
 
-        self._log = logger or FogVerseLogging(name=self._logging_name,
+        self._log = logger or FogVerseLogging(name=self._profiling_name,
                                               dirname=dirname,
-                                              df_header=self._df_header,
-                                              level=logging.FOGV_CSV_LOG_NUM)
+                                              csv_header=self._df_header,
+                                              level=logging.FOGV_CSV_LOG)
 
     async def start_producer(self):
         await super().start_producer()
