@@ -8,6 +8,7 @@ from .consumer_producer import (
 from .base import AbstractConsumer, AbstractProducer
 from .general import Runnable
 from .profiling import Profiling
+from .manager import Manager
 
 class Producer(AbstractConsumer, AIOKafkaProducer, Runnable):
     pass
