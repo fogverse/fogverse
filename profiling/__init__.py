@@ -50,9 +50,11 @@ class Profiling(BaseProfiling):
                  remote_logging=False,
                  remote_logging_name=None,
                  logger=None,
+                 app_id=None,
                  loop=None):
         super().__init__(loop=loop)
         self._unique_id = secrets.token_hex(3)
+        self.app_id = app_id or self._unique_id
         self._profiling_name = name or \
             f'{self.__class__.__name__}_{self._unique_id}'
         self._remote_logging_name = remote_logging_name or self._profiling_name
@@ -70,7 +72,7 @@ class Profiling(BaseProfiling):
 
             self._logging_producer_servers = \
                 os.getenv('LOGGING_PRODUCER_SERVERS') or \
-                getattr(self, 'LOGGING_producer_servers', None) or \
+                getattr(self, 'logging_producer_servers', None) or \
                 os.getenv('PRODUCER_SERVERS') or \
                 getattr(self, 'producer_servers', None)
             assert self._logging_producer_servers is not None, \
@@ -187,8 +189,7 @@ class Profiling(BaseProfiling):
     async def _send_logging_data(self, log_headers, log_data) -> asyncio.Future:
         if self._logging_producer is None: return
         send_data = {
-            'name': self._remote_logging_name,
-            'client': socket.gethostname(),
+            'app_id': self.app_id,
             'log headers': ['timestamp', *log_headers],
             'log data': [get_timestamp_str(), *log_data],
             'extras': getattr(self, 'extra_remote_data', {}),
