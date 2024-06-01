@@ -1,6 +1,9 @@
 
 from abc import ABC, abstractmethod
+import asyncio
 from dataclasses import dataclass
+from typing import Any, Optional
+from datetime import datetime
 
 class MasterWorker(ABC):
 
@@ -32,3 +35,23 @@ class NodeHeartBeat:
     target_topic: str
     timestamp: int
     total_messages: int
+
+@dataclass
+class DeployArgs:
+    source_topic: str
+    source_topic_throughput: float
+    target_topic: str
+    target_topic_throughput: float
+
+@dataclass
+class AutoScaleRequest:
+    source_topic: str
+    target_topic: str
+    deploy_configs : Optional[Any]
+
+
+@dataclass
+class TopicDeployDelay:
+    can_be_deployed: bool
+    deployed_timestamp: datetime 
+    _lock: asyncio.Lock = asyncio.Lock()
