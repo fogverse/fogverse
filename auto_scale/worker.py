@@ -1,10 +1,10 @@
 
 import asyncio
 from asyncio.tasks import Task
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from datetime import datetime, timedelta
 from logging import Logger
-from typing import Any, List, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from aiokafka.conn import functools
 from auto_scale.base import (
@@ -193,6 +193,7 @@ class TopicSpikeChecker:
         self._logger.info(f"{z_score < z_threshold}")
         return z_score < z_threshold
 
+
 class AutoDeployer(MasterWorker):
 
     def __init__(
@@ -352,3 +353,79 @@ class AutoDeployer(MasterWorker):
                 callback(args)
             except Exception as e:
                 self._logger.error(f"Fail shutting down machine with args {args} with cause {e}", args, e)
+
+class InputOutputRatioWorker(MasterWorker):
+
+    def __init__(
+            self,
+            refresh_rate_second: float,
+            input_output_ratio_threshold: float,
+            deployer : AutoDeployer
+        ):
+        '''
+        Worker that helps for counting input output ratio of topic
+        refresh_rate_second (second) : How frequent the worker will count the ratio between input and output ratio.
+        input_output_ratio_threshold : Ranging from 0.0 to 1.0, if the ratio is below the threshold and fulfill certain criteria, it will deploy a new instance 
+        '''
+
+        assert refresh_rate_second > 0
+        assert input_output_ratio_threshold > 0
+        assert input_output_ratio_threshold <= 1
+        
+        self._refresh_rate_second = refresh_rate_second
+        self._input_output_ratio_threshold = input_output_ratio_threshold
+        self._deployer = deployer
+
+        self._topics_current_count: dict[str, int] = {} 
+        self._topics_throughput_pair: dict[str, list[str]] = {}
+        self._logger = get_logger(name=self.__class__.__name__)
+
+        self._stop = False
+        
+    
+    def on_receive(self, data):
+        if isinstance(data, AutoScaleRequest):
+            self._logger.info(f"Received input output through pair data: {data}")
+            target_topics = self._topics_throughput_pair.get(data.source_topic, [])
+            target_topics.append(data.target_topic)
+            self._topics_throughput_pair[data.source_topic] = target_topics
+        elif isinstance(data, NodeHeartBeat):
+            topic_current_count = self._topics_current_count.get(data.target_topic, 0)
+            topic_current_count += data.total_messages
+            self._topics_current_count[data.target_topic] = topic_current_count
+
+    def _flush(self):
+        for topic, throughput in self._topics_current_count.items():
+            self._logger.info(f"Topic {topic} total message in {self._refresh_rate_second} seconds: {throughput}")
+            self._topics_current_count[topic] = 0
+
+    async def start(self):
+        self._logger.info("Starting input output ratio worker")
+        while not self._stop:
+            await asyncio.sleep(self._refresh_rate_second)
+            for source_topic, target_topics in self._topics_throughput_pair.items():
+                source_topic_throughput = self._topics_current_count.get(source_topic, 0)
+                for target_topic in target_topics:
+                    target_topic_throughput = self._topics_current_count.get(target_topic, 0)
+                    throughput_ratio = target_topic_throughput/max(source_topic_throughput, 1)
+
+                    if throughput_ratio == target_topic_throughput:
+                        self._logger.info(f"Source topic {source_topic} throughput is {source_topic_throughput}, the machine might be dead")
+                        return 
+
+                    self._logger.info(f"Ratio between topic {target_topic} and {source_topic} is: {throughput_ratio}")
+                    if throughput_ratio < self._input_output_ratio_threshold:
+                        self._logger.info(f"{throughput_ratio} is less than threshold: {self._input_output_ratio_threshold}")
+                        await self._deployer.deploy(
+                            DeployArgs(
+                                source_topic=source_topic,
+                                source_topic_throughput=source_topic_throughput/self._refresh_rate_second,
+                                target_topic=target_topic,
+                                target_topic_throughput=target_topic_throughput/self._refresh_rate_second
+                            )
+                        )
+            
+            self._flush()
+            
+    async def stop(self):
+        self._stop = True 
