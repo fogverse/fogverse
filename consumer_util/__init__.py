@@ -130,7 +130,7 @@ class ConsumerStart:
 
             # acquiring lock from master
             request = LockRequest(lock_consumer_id=consumer_id)
-            request_byte = request.encode()
+            request_byte = request.model_dump_json().encode()
             can_lock = False
 
             while not can_lock:
@@ -138,7 +138,7 @@ class ConsumerStart:
                     self._logger.info(f"{consumer_id} is sending lock request to master")
                     client.sendall(request_byte)
                     data = client.recv(ConsumerStart.MAX_BYTE)
-                    lock_response = LockResponse.decode(data)
+                    lock_response = LockResponse.model_validate_json(data, strict=True)
                     can_lock = lock_response.can_lock
 
                     if not can_lock:
@@ -214,9 +214,9 @@ class ConsumerStart:
             while not is_unlocked:
                 try:
                     self._logger.info(f"{consumer_id} is sending unlock request to master")
-                    client.send(unlock_request.encode())
+                    client.send(unlock_request.model_dump_json().encode())
                     data = client.recv(ConsumerStart.MAX_BYTE)
-                    unlock_response = UnlockResponse.decode(data)
+                    unlock_response = UnlockResponse.model_validate_json(data, strict=True)
                     is_unlocked = unlock_response.is_unlocked
                     if not is_unlocked:
                         self._logger.info(f"Unlock request rejected, retrying in {self._sleep_time} seconds")

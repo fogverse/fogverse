@@ -114,10 +114,23 @@ class DistributedWorkerServerWorker(MasterWorker):
 
     def parse_request(self, request: bytes):
         try:
-            return LockRequest.decode(request)
+            return LockRequest.model_validate_json(request)
         except Exception:
-            return UnlockRequest.decode(request)
+            return UnlockRequest.model_validate_json(request)
 
+    def on_receive(self, data):
+        pass
+    
+    async def start(self):
+        self._logger.info("Starting distributed lock worker")
+        self.server = await asyncio.start_server(self.handle_request, self.master_host, self.master_port)
+
+        async with self.server:
+            await self.server.serve_forever()
+
+    async def stop(self):
+        if self.server:
+            self.server.close()
 
     async def handle_request(self, reader : asyncio.StreamReader, writer : asyncio.StreamWriter):
         while not self._stop:
@@ -135,22 +148,22 @@ class DistributedWorkerServerWorker(MasterWorker):
                     # not allowed to request lock when there is already another consumer locking
                     if self.current_consumer_id:
                         lock_response = LockResponse(can_lock=False)
-                        writer.write(lock_response.encode())
+                        writer.write(lock_response.model_dump_json().encode())
                         await writer.drain()
                     else:
                         self.current_consumer_id = parsed_request.lock_consumer_id
                         lock_response = LockResponse(can_lock=True)
-                        writer.write(lock_response.encode())
+                        writer.write(lock_response.model_dump_json().encode())
                         await writer.drain()
                 else:
                     if parsed_request.unlock_consumer_id == self.current_consumer_id:
                         self.current_consumer_id = None
                         unlock_response = UnlockResponse(is_unlocked=True)
-                        writer.write(unlock_response.encode())
+                        writer.write(unlock_response.model_dump_json().encode())
                         await writer.drain()
                     else:
                         unlock_response = UnlockResponse(is_unlocked=False)
-                        writer.write(unlock_response.encode())
+                        writer.write(unlock_response.model_dump_json().encode())
                         await writer.drain()
 
             except Exception as e:
@@ -182,7 +195,7 @@ class TopicSpikeChecker:
         self._topic_statistic = topic_statistic
         self._logger = get_logger(name=self.__class__.__name__)
 
-    def check_spike_by_z_value(self, z_threshold: int, topic_id: str, topic_throughput: float) -> bool:
+    def check_spike_by_z_value(self, z_threshold: float, topic_id: str, topic_throughput: float) -> bool:
         self._logger.info(f"Checking if topic {topic_id} is a spike or not")
         std = self._topic_statistic.get_topic_standard_deviation(topic_id)
         mean = self._topic_statistic.get_topic_mean(topic_id)
@@ -199,9 +212,9 @@ class AutoDeployer(MasterWorker):
     def __init__(
             self,
             deploy_script: DeployScripts,
-            should_be_deployed : Callable[[str, float],bool],
-            deploy_delay: int,
-            after_heartbeat_delay : int 
+            should_be_deployed : Optional[Callable[[str, float],bool]],
+            deploy_delay: float,
+            after_heartbeat_delay : float
         ):
         """
         A class to facilitate the auto deployment process for each consumer topic.
@@ -209,9 +222,9 @@ class AutoDeployer(MasterWorker):
         Args:
             deploy_script : Class that will be used to deploy machine 
             should_be_deployed : A callback that deduce whether a machine should be deployed.
-            deploy_delay (int): Delay (in seconds) for topic deployment. Even if a topic's throughput is still low, it won't
+            deploy_delay (float): Delay (in seconds) for topic deployment. Even if a topic's throughput is still low, it won't
                 be deployed after several attempts based on this delay.
-            after_heartbeat_delay (int): Delay (in seconds) after a machine has successfully send heartbeat to master, this delay ensure that 
+            after_heartbeat_delay (float): Delay (in seconds) after a machine has successfully send heartbeat to master, this delay ensure that 
             there won't be additional request to deploy another machine right after the machine just deployed.
         """
 
@@ -231,7 +244,7 @@ class AutoDeployer(MasterWorker):
         self._after_heartbeat_delay_task : dict[str, Task] = {}
         self._shutdown_callback : list[tuple[Any, Callable[..., Any]]] = [] 
 
-    async def delay_deploy(self, topic_id: str, sleep_time : int):
+    async def delay_deploy(self, topic_id: str, sleep_time : float):
         await asyncio.sleep(sleep_time)
         self._can_deploy_topic[topic_id].can_be_deployed = True
 
@@ -251,24 +264,24 @@ class AutoDeployer(MasterWorker):
             return
         
         if data.deploy_configs:
-            self._topic_deployment_configs[data.deploy_configs.topic_id] = data.deploy_configs
+            self._topic_deployment_configs[data.target_topic] = data.deploy_configs
             current_time = get_timestamp()
-            if data.deploy_configs.topic_id not in self._can_deploy_topic:
-                self._can_deploy_topic[data.deploy_configs.topic_id] = TopicDeployDelay(
+            if data.target_topic not in self._can_deploy_topic:
+                self._can_deploy_topic[data.target_topic] = TopicDeployDelay(
                     can_be_deployed=False,
                     deployed_timestamp=current_time
                 )
 
-            self._cancel_topic_task_delay(data.deploy_configs.topic_id, self._delay_deploy_task)
-            self._cancel_topic_task_delay(data.deploy_configs.topic_id, self._after_heartbeat_delay_task)
+            self._cancel_topic_task_delay(data.target_topic, self._delay_deploy_task)
+            self._cancel_topic_task_delay(data.target_topic, self._after_heartbeat_delay_task)
 
-            self._after_heartbeat_delay_task[data.deploy_configs.topic_id] = asyncio.create_task(
-                self.delay_deploy(data.deploy_configs.topic_id, self._after_heartbeat_delay)
+            self._after_heartbeat_delay_task[data.target_topic] = asyncio.create_task(
+                self.delay_deploy(data.target_topic, self._after_heartbeat_delay)
             )
-            self._topic_time_delay[data.deploy_configs.topic_id] = current_time + timedelta(seconds=self._after_heartbeat_delay)
+            self._topic_time_delay[data.target_topic] = current_time + timedelta(seconds=self._after_heartbeat_delay)
 
-            total_deployment = self._topic_total_deployment.get(data.deploy_configs.topic_id, 0)
-            self._topic_total_deployment[data.deploy_configs.topic_id] = total_deployment + 1
+            total_deployment = self._topic_total_deployment.get(data.target_topic, 0)
+            self._topic_total_deployment[data.target_topic] = total_deployment + 1
 
     async def start(self):
         pass
@@ -304,10 +317,15 @@ class AutoDeployer(MasterWorker):
                     )
                     return False
 
-                source_topic_is_not_spike = self._should_be_deployed(source_topic, source_total_calls)
-                target_topic_is_not_spike = self._should_be_deployed(target_topic, target_total_calls) 
+                not_a_spike = False 
+                
+                if self._should_be_deployed:
+                    source_topic_is_not_spike = self._should_be_deployed(source_topic, source_total_calls)
+                    target_topic_is_not_spike = self._should_be_deployed(target_topic, target_total_calls) 
+                    not_a_spike = source_topic_is_not_spike and target_topic_is_not_spike
 
-                if source_topic_is_not_spike and target_topic_is_not_spike:
+                # if no detection needed then this will continue regardless it's a spike or not
+                if not_a_spike or not self._should_be_deployed:
                     self._logger.info(f"Deploying new machine for service {service_name} to cloud provider: {provider}")
 
                     machine_deployer = self._deploy_scripts.get_deploy_functions(
@@ -360,7 +378,7 @@ class InputOutputRatioWorker(MasterWorker):
             self,
             refresh_rate_second: float,
             input_output_ratio_threshold: float,
-            deployer : AutoDeployer
+            deployer : Optional[AutoDeployer]
         ):
         '''
         Worker that helps for counting input output ratio of topic
@@ -416,6 +434,11 @@ class InputOutputRatioWorker(MasterWorker):
                     self._logger.info(f"Ratio between topic {target_topic} and {source_topic} is: {throughput_ratio}")
                     if throughput_ratio < self._input_output_ratio_threshold:
                         self._logger.info(f"{throughput_ratio} is less than threshold: {self._input_output_ratio_threshold}")
+
+                        if not self._deployer:
+                            self._logger.info("No deploying scheme set will continue")
+                            continue
+
                         await self._deployer.deploy(
                             DeployArgs(
                                 source_topic=source_topic,

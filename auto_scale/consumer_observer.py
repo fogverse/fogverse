@@ -24,7 +24,7 @@ class ProducerObserver:
     def send_auto_scale_request(self,
                                      source_topic: str,
                                      target_topic: str,
-                                     topic_configs: Optional[Any]):
+                                     topic_configs: Optional[dict]):
         '''
         Identify which topic pair should the observer ratio with
         send: a produce function from kafka

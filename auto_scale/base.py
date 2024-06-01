@@ -1,9 +1,9 @@
 
 from abc import ABC, abstractmethod
 import asyncio
-from dataclasses import dataclass
 from typing import Any, Optional
 from datetime import datetime
+from pydantic import BaseModel, ConfigDict
 
 class MasterWorker(ABC):
 
@@ -30,28 +30,25 @@ class TopicStatistic(ABC):
         pass
 
 
-@dataclass
-class NodeHeartBeat:
+class NodeHeartBeat(BaseModel):
     target_topic: str
     timestamp: int
     total_messages: int
 
-@dataclass
-class DeployArgs:
+class DeployArgs(BaseModel):
     source_topic: str
     source_topic_throughput: float
     target_topic: str
     target_topic_throughput: float
 
-@dataclass
-class AutoScaleRequest:
+class AutoScaleRequest(BaseModel):
     source_topic: str
     target_topic: str
-    deploy_configs : Optional[Any]
+    deploy_configs : Optional[dict]
 
 
-@dataclass
-class TopicDeployDelay:
+class TopicDeployDelay(BaseModel):
+    model_config = ConfigDict(ignored_types=(asyncio.Lock, ))
     can_be_deployed: bool
     deployed_timestamp: datetime 
     _lock: asyncio.Lock = asyncio.Lock()
