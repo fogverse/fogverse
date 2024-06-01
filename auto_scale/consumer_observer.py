@@ -1,4 +1,6 @@
 
+import dataclasses
+import json
 from typing import Any, Optional
 from confluent_kafka import Producer
 from auto_scale.base import AutoScaleRequest, NodeHeartBeat
@@ -36,6 +38,8 @@ class ProducerObserver:
                 deploy_configs=topic_configs
             )
 
+            data = json.dumps(dataclasses.asdict(data)).encode('utf-8')
+
             self.producer.produce(topic=self._producer_topic, value=data)
     
     def send_heartbeat(
@@ -50,6 +54,8 @@ class ProducerObserver:
                 total_messages=total_messages,
                 timestamp=int(get_timestamp().timestamp()),
             )
+
+            data = json.dumps(dataclasses.asdict(data)).encode('utf-8')
 
             self.producer.produce(topic=self._producer_topic, value=data)
             self.producer.flush()
