@@ -8,7 +8,7 @@ See [Live YOLOv5 Implementation](https://github.com/fogverse/live-yolov5).
 
 **NOTICE**
 
-This Usage tutorial is under assumption that you understand how to use FogVerse in basic usage such as creating producer or consumer. If you have not understand it fully, then you can see the YOLOv5 implementation from above.
+This usage tutorial is under assumption that you understand how to use FogVerse in basic usage such as creating producer or consumer. If you have not understand it fully, then you can see the YOLOv5 implementation from above.
 
 If you wanted to use auto scale there are two things that you need to set up, the Master and machine that wants to use the auto scaling.  
 
