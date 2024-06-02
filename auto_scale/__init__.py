@@ -6,13 +6,13 @@ from pydantic import BaseModel
 from enum import Enum
 
 from auto_scale.base import AutoScaleRequest, MasterWorker, NodeHeartBeat
+from auto_scale.consumer_observer import Observer
 from auto_scale.worker import AutoDeployer, DeployScripts, DistributedWorkerServerWorker, InputOutputRatioWorker, StatisticWorker, TopicSpikeChecker
 from base import AbstractProducer
 from consumer_producer import AIOKafkaConsumer
 from fogverse_logging import get_logger
 from general import Runnable
 from typing import Optional, TypedDict
-
 
 class Master(AIOKafkaConsumer, AbstractProducer, Runnable):
 
@@ -33,6 +33,7 @@ class Master(AIOKafkaConsumer, AbstractProducer, Runnable):
         ]
 
         self.auto_decode = False
+        AIOKafkaConsumer.__init__(self)
 
         self._closed = False
         self._observers = observers
@@ -89,6 +90,10 @@ class DistributedWorkerConfig(TypedDict):
 class AutoDeployerConfig(TypedDict):
     deploy_delay : float
     after_heartbeat_delay : float
+
+class ObserverConfig(TypedDict):
+    producer_topic: str
+    kafka_server : str
 
 class Worker(Enum):
     AUTO_DEPLOYER = 0
@@ -167,3 +172,5 @@ class AutoScaleComponent:
             observers=used_worker
         )
 
+    def observer(self, config : ObserverConfig):
+        return Observer(**config)

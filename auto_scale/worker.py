@@ -1,7 +1,7 @@
 
 import asyncio
 from asyncio.tasks import Task
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from logging import Logger
 from typing import Any, Optional, Tuple
@@ -10,6 +10,7 @@ from aiokafka.conn import functools
 from auto_scale.base import (
     AutoScaleRequest,
     DeployArgs,
+    DeployConfig,
     MasterWorker,
     NodeHeartBeat,
     TopicDeployDelay,
@@ -122,7 +123,7 @@ class DistributedWorkerServerWorker(MasterWorker):
         pass
     
     async def start(self):
-        self._logger.info("Starting distributed lock worker")
+        self._logger.info(f"Starting distributed lock worker with host {self.master_host} {self.master_port}")
         self.server = await asyncio.start_server(self.handle_request, self.master_host, self.master_port)
 
         async with self.server:
@@ -174,14 +175,14 @@ class DistributedWorkerServerWorker(MasterWorker):
 class DeployScripts:
 
     def __init__(self, log_dir_path: str='logs'):
-        self._deploy_functions: dict[str, Callable[[Logger, Any], Optional[Tuple[Any, Callable[..., Any]]]]] = {}
+        self._deploy_functions: dict[str, Callable[[Logger, DeployConfig], Optional[Tuple[Any, Callable[..., Any]]]]] = {}
         self._log_dir_path = log_dir_path
         self._logger = get_logger(name=self.__class__.__name__)
 
     def get_deploy_functions(self, cloud_provider: str):
         return self._deploy_functions[cloud_provider]
 
-    def set_deploy_functions(self, cloud_provider: str, deploy_function: Callable[[Logger, Any], Optional[Tuple[Any, Callable[..., Any]]]]):
+    def set_deploy_functions(self, cloud_provider: str, deploy_function: Callable[[Logger, DeployConfig],  Optional[Tuple[Any, Callable[..., Any]]]]):
         '''
         The deploy function accepts logger to allow seeing the process of deployment. Return value should return two things,
         the parameter which the shutdown function will accept and the callback for shutting down the machine. If there is no shutdown function
@@ -235,7 +236,7 @@ class AutoDeployer(MasterWorker):
 
         self._logger = get_logger(name=self.__class__.__name__)
         
-        self._topic_deployment_configs: dict[str, Any] = {}
+        self._topic_deployment_configs: dict[str, DeployConfig] = {}
         self._can_deploy_topic: dict[str, TopicDeployDelay] = {}
         self._topic_total_deployment: dict[str, int] = {}
         self._topic_time_delay : dict[str, datetime] = {}
@@ -263,7 +264,7 @@ class AutoDeployer(MasterWorker):
         if not isinstance(data, AutoScaleRequest):
             return
         
-        if data.deploy_configs:
+        if data.deploy_configs != None:
             self._topic_deployment_configs[data.target_topic] = data.deploy_configs
             current_time = get_timestamp()
             if data.target_topic not in self._can_deploy_topic:
@@ -303,11 +304,11 @@ class AutoDeployer(MasterWorker):
                     self._logger.info(f"Cannot be deployed yet, time remaining: {time_remaining}")
                     return False
             
-                maximum_topic_deployment = self._topic_deployment_configs[target_topic].max_instance
+                maximum_topic_deployment = self._topic_deployment_configs[target_topic]['max_instance']
                 current_deployed_replica = self._topic_total_deployment.get(target_topic, 1)
 
-                service_name = self._topic_deployment_configs[target_topic].service_name
-                provider = self._topic_deployment_configs[target_topic].provider
+                service_name = self._topic_deployment_configs[target_topic]['service_name']
+                provider = self._topic_deployment_configs[target_topic]['provider']
 
                 if current_deployed_replica >= maximum_topic_deployment:
                     self._logger.info(
@@ -329,7 +330,7 @@ class AutoDeployer(MasterWorker):
                     self._logger.info(f"Deploying new machine for service {service_name} to cloud provider: {provider}")
 
                     machine_deployer = self._deploy_scripts.get_deploy_functions(
-                        self._topic_deployment_configs[target_topic].provider
+                        self._topic_deployment_configs[target_topic]['provider']
                     )
 
                     if machine_deployer is None:
@@ -338,7 +339,8 @@ class AutoDeployer(MasterWorker):
 
                     self._logger.info("Starting deployment script")
                     starting_time = get_timestamp()
-                    deploy_result = machine_deployer(self._topic_deployment_configs[target_topic], self._logger)
+                    deploy_result = machine_deployer(self._logger, self._topic_deployment_configs[target_topic])
+
 
                     if deploy_result is not None:
                         self._shutdown_callback.append(deploy_result)

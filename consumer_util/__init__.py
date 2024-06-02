@@ -1,5 +1,6 @@
 import time
 import socket
+from aiokafka import AIOKafkaConsumer
 
 from aiokafka.client import asyncio
 from confluent_kafka.admin import (
@@ -20,7 +21,6 @@ class ConsumerStart:
     lock = asyncio.Lock()
     OFFSET_OUT_OF_RANGE = -1001 
     MAX_BYTE = 1024
-
     
     def __init__(self, 
                  kafka_admin: AdminClient,
@@ -104,15 +104,13 @@ class ConsumerStart:
 
         return False
 
-    def start_with_distributed_lock(self,
-                                    consumer: Consumer,
-                                    topic_id: str,
-                                    group_id: str,
-                                    consumer_id : str,
-                                    on_partition_assigned,
-                                    on_partition_lost,
-                                    /,
-                                    retry_attempt: int=3):
+    async def start_with_distributed_lock(self,
+                                          consumer: AIOKafkaConsumer,
+                                          topic_id: str,
+                                          group_id: str,
+                                          consumer_id : str,
+                                          /,
+                                          retry_attempt: int=3):
 
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
         try:
@@ -167,41 +165,21 @@ class ConsumerStart:
 
                 time.sleep(self._sleep_time)
 
-            self._logger.info("Partition is enough, subscribing to topic")
-
-            consumer.subscribe(
-                topics=[topic_id],
-                on_assign=on_partition_assigned,
-                on_lost=on_partition_lost
-            )
+            self._logger.info("Partition is enough, joining consumer group")
 
             self._logger.info("Waiting for consumer to be assigned on a consumer group")
 
-            while True:
-                consumer_member_id = consumer.memberid() 
-                if consumer.memberid():
-                    self._logger.info(f"Consumer assigned to consumer group with id {consumer_member_id}")
-                    break
+            consumer.subscribe(topics=[topic_id])
 
-                self._logger.info("Consumer is still not assigned on the consumer group, retrying...")
-                time.sleep(self._sleep_time)
-
-            self._logger.info("Waiting for consumer to be assigned on a partition")
-
-            consumed_message = []
+            await consumer.start()
 
             while True:
-
-                message = consumer.poll(self._sleep_time)
-
-                if message:
-                    consumed_message.append(message)
 
                 consumer_partition_assignment = consumer.assignment()
                 self.consumer_is_assigned_partition = len(consumer_partition_assignment) != 0
 
                 if self.consumer_is_assigned_partition:
-                    self._logger.info(f"Consumer is assigned to {len(consumer_partition_assignment)} partitions, consuming")
+                    self._logger.info(f"Consumer is assigned to {len(consumer_partition_assignment)} partitions, releasing lock")
                     break
 
                 self._logger.info("Fail connecting, retrying...")
@@ -226,48 +204,9 @@ class ConsumerStart:
                     self._logger.error(e)
 
             client.close()
-            return consumed_message
 
         except Exception as e:
             self._logger.error(e)
 
         finally:
             client.close()
-
-        # joining consumer group
-        self._logger.info(f"Subscribing to topic {topic_id}")
-
-        consumer.subscribe(
-            topics=[topic_id] 
-        )
-
-        self._logger.info("Waiting for consumer to be assigned on a consumer group")
-
-        while True:
-            consumer_member_id = consumer.memberid() 
-            if consumer.memberid():
-                self._logger.info(f"Consumer assigned to consumer group with id {consumer_member_id}")
-                break
-
-            self._logger.info("Consumer is still not assigned on the consumer group, retrying...")
-            time.sleep(self._sleep_time)
-
-        consumed_message = []
-        
-        # making sure that the consumer gets the partition 
-        while True:
-            
-            message = consumer.poll(1)
-
-            if message:
-                consumed_message.append(message)
-
-                consumer_partition_assignment = consumer.assignment()
-                self.consumer_is_assigned_partition = len(consumer_partition_assignment) != 0
-
-                if self.consumer_is_assigned_partition:
-                    consumer.commit()
-                    self._logger.info(f"Consumer is assigned to {len(consumer_partition_assignment)} partitions, consuming")
-                    return consumed_message
-
-                self._logger.info(f"Fail connecting for consumer id : {consumer_id}, retrying...")

@@ -3,7 +3,7 @@ import asyncio
 import numpy as np
 import cv2
 
-from .util import bytes_to_numpy, numpy_to_bytes, compress_encoding
+from util import bytes_to_numpy, numpy_to_bytes, compress_encoding
 from pickle import UnpicklingError
 
 class Processor(ABC):
