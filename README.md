@@ -10,7 +10,7 @@ See [Live YOLOv5 Implementation](https://github.com/fogverse/live-yolov5).
 
 This usage tutorial is under assumption that you understand how to use FogVerse in basic usage such as creating producer or consumer. If you have not understand it fully, then you can see the YOLOv5 implementation from above.
 
-If you wanted to use auto scale there are two things that you need to set up, the Master and machine that wants to use the auto scaling.  
+If you want to use auto scale feature there are two things that you need to set up, the `Master` and `machine` that wants to used for the auto scaling.  
 
 To create master, you can either use class from `auto_scale` module which has `Master` class following the `worker` that has could also be used for development. If you wanted to use the whole implementation then you can use `MasterComponent` class which provides simpler API for you to create the whole `Master`.
 
