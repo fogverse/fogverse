@@ -20,17 +20,15 @@ class Master(AIOKafkaConsumer, AbstractProducer, Runnable):
                  consumer_topic: str, 
                  consumer_servers: str,
                  consumer_group_id: str,
-                 observers: list[Optional[MasterWorker]]):
+                 observers: list[Optional[MasterWorker]],
+                 possible_data_types : list[type[BaseModel]]):
 
         self.consumer_topic =  consumer_topic
         self.consumer_servers = consumer_servers
         self.group_id = consumer_group_id
         self._log = get_logger(name=self.__class__.__name__)
 
-        self.possible_data_types : list[type[BaseModel]] = [
-            AutoScaleRequest,
-            NodeHeartBeat
-        ]
+        self.possible_data_types : list[type[BaseModel]] = possible_data_types
 
         self.auto_decode = False
         AIOKafkaConsumer.__init__(self)
@@ -169,7 +167,8 @@ class AutoScaleComponent:
             consumer_topic=master_config['consumer_topic'],
             consumer_group_id=master_config['consumer_group_id'],
             consumer_servers=master_config['consumer_server'],
-            observers=used_worker
+            observers=used_worker,
+            possible_data_types=[AutoScaleRequest, NodeHeartBeat]
         )
 
     def observer(self, config : ObserverConfig):
