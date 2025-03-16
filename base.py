@@ -1,9 +1,22 @@
+from abc import ABC, abstractmethod
 import asyncio
 import numpy as np
 import cv2
 
-from .util import bytes_to_numpy, numpy_to_bytes, compress_encoding
+from util import bytes_to_numpy, numpy_to_bytes, compress_encoding
 from pickle import UnpicklingError
+
+class Processor(ABC):
+    '''
+    This abstract class is used for extending concrete implementation on process part of FogVerse. The reason this is
+    separated from the ParallelRunnable is because it has Future class which makes it impossible to be pickable. Multiprocessing 
+    requires you to have a class that can be pickable. Therefore, on extending this class ensure that the classes you are using
+    is pickable otherwise it won't run.
+    '''
+
+    @abstractmethod
+    def process(self, data):
+        pass
 
 class AbstractConsumer:
     async def start_consumer(self):
